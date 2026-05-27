@@ -1,8 +1,13 @@
 // GitLawb client — decentralized git on IPFS/libp2p (step 2).
-// Creates a repo owned by the agent DID and pushes files. Auth is via the
-// GITLAWB_TOKEN bearer for now; UCAN-signed auth is a follow-up.
+// Per github.com/Gitlawb/node the surface is CLI-first: the `gl` binary plus a
+// `git-remote-gitlawb` helper that makes `gitlawb://<did>/<repo>` URLs work with
+// native git. Identity is Ed25519/did:key; auth is HTTP Signatures (no token).
+// We shell out via execa, and fall back to stubs when `gl` isn't installed.
 
-import { withTimeout, DEFAULT_TIMEOUT_MS } from '../util/timeout.js';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execa } from 'execa';
 import * as log from '../logger.js';
 import type { Config } from '../config.js';
 
@@ -18,54 +23,43 @@ export interface PushFileRequest {
   message: string;
 }
 
+async function glAvailable(): Promise<boolean> {
+  try {
+    await execa('gl', ['--version']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createRepo(config: Config, body: CreateRepoRequest): Promise<{ repoUrl: string }> {
-  if (!config.GITLAWB_TOKEN) {
-    log.stub('gitlawb — no GITLAWB_TOKEN, returning mock repo URL');
-    return { repoUrl: `https://gitlawb.com/${body.owner.slice(-6)}/${body.name}` };
+  if (!(await glAvailable())) {
+    log.stub('gitlawb — `gl` CLI not found, returning mock repo URL');
+    return { repoUrl: `gitlawb://${body.owner}/${body.name}` };
   }
 
-  // TODO(spec): confirm HTTP API vs CLI surface — could not determine from
-  // https://github.com/orgs/Gitlawb/repositories. Assuming POST /repos for now;
-  // fall back to shelling out to a `gitlawb` CLI via execa if that's the real surface.
-  return withTimeout('gitlawb create repo', DEFAULT_TIMEOUT_MS, async (signal) => {
-    const res = await fetch(`${config.GITLAWB_API_URL}/repos`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${config.GITLAWB_TOKEN}`,
-      },
-      body: JSON.stringify({ name: body.name, owner: body.owner }),
-      signal,
-    });
-    if (!res.ok) {
-      throw new Error(`[step 2] gitlawb create repo failed: ${res.status} ${await res.text()}`);
-    }
-    const json = (await res.json()) as { url?: string; repoUrl?: string };
-    const repoUrl = json.repoUrl ?? json.url;
-    if (!repoUrl) throw new Error('[step 2] gitlawb create repo: no repo URL in response');
-    return { repoUrl };
-  });
+  // TODO(spec): reconcile identity — `gl identity new` creates its own did:key,
+  // but our DID comes from the 1Claw vault (step 1). Confirm `gl identity import`
+  // (or equivalent) so the repo is owned by the vaulted DID, and confirm the
+  // exact `gl register` / `gl repo create` flags.
+  await execa('gl', ['register', '--node', config.GITLAWB_NODE_URL]).catch(() => undefined);
+  await execa('gl', ['repo', 'create', body.name, '--description', 'autonomous 1Claw reference agent repo']);
+  return { repoUrl: `gitlawb://${body.owner}/${body.name}` };
 }
 
 export async function pushFile(config: Config, body: PushFileRequest): Promise<void> {
-  if (!config.GITLAWB_TOKEN) {
-    log.stub(`gitlawb — no GITLAWB_TOKEN, skipping push of ${body.path}`);
+  if (!(await glAvailable())) {
+    log.stub(`gitlawb — \`gl\` CLI not found, skipping push of ${body.path}`);
     return;
   }
 
-  // TODO(spec): confirm file-push surface — content-addressed commit endpoint vs git protocol.
-  await withTimeout('gitlawb push file', DEFAULT_TIMEOUT_MS, async (signal) => {
-    const res = await fetch(`${body.repoUrl}/contents/${body.path}`, {
-      method: 'PUT',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${config.GITLAWB_TOKEN}`,
-      },
-      body: JSON.stringify({ message: body.message, content: body.content }),
-      signal,
-    });
-    if (!res.ok) {
-      throw new Error(`[step 2] gitlawb push ${body.path} failed: ${res.status} ${await res.text()}`);
-    }
-  });
+  // TODO(spec): confirm the push flow. This drives native git through the
+  // git-remote-gitlawb helper (one commit per file); a `gl` push subcommand may
+  // be the intended path instead.
+  const work = mkdtempSync(join(tmpdir(), 'gitlawb-'));
+  writeFileSync(join(work, body.path), body.content);
+  await execa('git', ['init', '-q', '-b', 'main'], { cwd: work });
+  await execa('git', ['add', body.path], { cwd: work });
+  await execa('git', ['commit', '-q', '-m', body.message], { cwd: work });
+  await execa('git', ['push', body.repoUrl, 'main'], { cwd: work });
 }
