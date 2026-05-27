@@ -6,6 +6,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { loadConfig } from './config.js';
+import { resolveSecrets } from './secrets.js';
 import * as log from './logger.js';
 import { createDid } from './steps/01-create-did.js';
 import { pushRepo } from './steps/02-push-repo.js';
@@ -28,7 +29,8 @@ const STEPS: Array<{ n: number; label: string; fn: StepFn }> = [
 ];
 
 async function main(): Promise<void> {
-  const config = loadConfig();
+  // Load the agent key, then pull third-party secrets from the 1Claw vault.
+  const config = await resolveSecrets(loadConfig());
   const ctx: AgentContext = {};
   const startedAt = new Date().toISOString();
   let ok = true;

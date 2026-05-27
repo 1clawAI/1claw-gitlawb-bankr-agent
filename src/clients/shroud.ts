@@ -6,7 +6,7 @@
 import OpenAI from 'openai';
 import { withTimeout, DEFAULT_TIMEOUT_MS } from '../util/timeout.js';
 import * as log from '../logger.js';
-import type { Config } from '../config.js';
+import { isProvisioned, type Config } from '../config.js';
 
 // Canned output used when no SHROUD_API_KEY is set, so the scaffold runs offline.
 const CANNED_MCP_SERVER = `import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -50,8 +50,11 @@ function providerFor(model: string): string {
 }
 
 export async function generateCode(config: Config, prompt: string): Promise<string> {
-  if (!config.SHROUD_API_KEY) {
-    log.stub('shroud — no SHROUD_API_KEY, returning canned MCP server');
+  // Shroud authenticates with the agent's own 1Claw key; SHROUD_API_KEY is an
+  // optional override for using a separate proxy key.
+  const shroudKey = config.SHROUD_API_KEY || config.ONECLAW_AGENT_API_KEY;
+  if (!isProvisioned(shroudKey)) {
+    log.stub('shroud — no agent/Shroud key, returning canned MCP server');
     return CANNED_MCP_SERVER;
   }
 
@@ -62,7 +65,7 @@ export async function generateCode(config: Config, prompt: string): Promise<stri
     baseURL: config.SHROUD_API_URL,
     apiKey: 'shroud', // unused: Shroud authenticates via X-Shroud-Agent-Key
     defaultHeaders: {
-      'X-Shroud-Agent-Key': config.SHROUD_API_KEY,
+      'X-Shroud-Agent-Key': shroudKey,
       'X-Shroud-Provider': provider,
     },
   });

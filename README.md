@@ -33,55 +33,82 @@ artifact (DID, repo URL, token address, swap tx hash).
                        Ed25519     did:key    agent.ts  token CA   swap tx
                        did:key     repo URL   code      on Base    on Base
 
-  Key custody:  private key is POSTed to the 1Claw vault once (step 1) and is
-                never returned or logged. Step 5 signs via the HSM by key handle.
+  Key custody:  the Ed25519 key is minted *inside* the 1Claw HSM (step 1); only
+                the public half leaves. Step 5 signs via the HSM by key handle.
 ```
 
 ## Run it
 
 ```bash
 pnpm install
-cp .env.example .env     # fill in your keys (see below)
-pnpm agent
+cp .env.example .env          # add only your 1Claw HUMAN key
+pnpm bootstrap                # provisions agent + vault, prompts for other secrets
+pnpm agent                    # runs with the agent key; pulls secrets from 1Claw
 ```
 
-With an empty `.env` the agent runs **end-to-end against stubs** — every external
-call returns mock data, the DID is still generated with real crypto, and
-`run-summary.json` is written. Fill in credentials to light up each real
-integration one at a time.
+With an empty `.env` everything still runs **end-to-end against stubs** — every
+external call returns mock data, the DID is generated with real crypto, and
+`run-summary.json` is written. So you can `pnpm agent` immediately, then bootstrap
+real credentials when you're ready.
+
+### How secrets work (two keys, vault-held)
+
+You manage one secret; the agent manages the rest:
+
+- **`ONECLAW_HUMAN_API_KEY`** — yours. Used *only* by `pnpm bootstrap` to create the
+  agent, attach a policy, and write secrets to the vault. Never used at runtime.
+- **`ONECLAW_AGENT_API_KEY` + `ONECLAW_AGENT_ID`** — the agent's own scoped key,
+  written into `.env` by bootstrap. This is all `pnpm agent` needs.
+
+`pnpm bootstrap` prompts for the third-party secrets (Bankr key, Neynar) and stores
+them **in the 1Claw vault**, not in `.env`. At runtime the agent pulls them back by
+name (`src/secrets.ts`). Shroud reuses the agent key, so no separate LLM key is needed.
+
+```
+  pnpm bootstrap                         pnpm agent
+  ┌──────────────┐                       ┌──────────────┐
+  │  HUMAN key   │── create agent ──▶     │  AGENT key   │── reads ──▶ 1Claw vault
+  │  (you, once) │── attach policy        │ (.env, auto) │            (Bankr, Neynar…)
+  └──────────────┘── store secrets ─▶ vault└──────────────┘
+```
 
 ### Environment
 
-| Var | Used by | Required for real run |
-|-----|---------|-----------------------|
-| `ONECLAW_API_URL` / `ONECLAW_API_KEY` / `ONECLAW_AGENT_ID` | steps 1 & 5 | yes |
-| `SHROUD_API_URL` / `SHROUD_API_KEY` / `SHROUD_MODEL` | step 3 | yes |
-| `GITLAWB_NODE_URL` (+ the `gl` CLI installed) | step 2 | yes |
-| `BANKR_API_URL` / `BANKR_API_KEY` | step 4 | yes |
-| `NEYNAR_API_KEY` / `NEYNAR_SIGNER_UUID` / `FARCASTER_FID` | step 4 (Farcaster fallback) | optional |
-| `BASE_RPC_URL` | step 5 | yes |
+| Var | Used by | Notes |
+|-----|---------|-------|
+| `ONECLAW_HUMAN_API_KEY` | `pnpm bootstrap` | the only key you set by hand |
+| `ONECLAW_AGENT_API_KEY` / `ONECLAW_AGENT_ID` | `pnpm agent` | written by bootstrap |
+| `BANKR_API_KEY`, `NEYNAR_*` | step 4 | stored in the 1Claw vault by bootstrap |
+| `SHROUD_API_URL` / `SHROUD_MODEL` | step 3 | Shroud auths with the agent key |
+| `GITLAWB_NODE_URL` (+ the `gl` CLI) | step 2 | identity-based, no token |
+| `BASE_RPC_URL` | step 5 | Base RPC |
 
-Blank entries in `.env` are treated as unset, so defaults (the URLs above) apply.
+Blank entries in `.env` are treated as unset, so defaults apply.
 
 ## Project layout
 
 ```
 src/
-├── agent.ts              # entrypoint — runs all 5 steps sequentially
+├── bootstrap.ts          # `pnpm bootstrap` — provision agent + vault (human key)
+├── agent.ts              # `pnpm agent` — runs all 5 steps sequentially
 ├── config.ts             # env loading + zod schema
+├── secrets.ts            # which secrets live in the vault; runtime overlay
 ├── logger.ts             # console wrapper, [step N/5] prefixes
 ├── types.ts              # shared Context + summary types
-├── util/timeout.ts       # 30s timeout wrapper for all async I/O
+├── util/
+│   ├── timeout.ts        # 30s timeout wrapper for all async I/O
+│   └── v4-swap.ts        # Uniswap V4 swap calldata encoder (viem)
 ├── steps/
-│   ├── 01-create-did.ts  # Ed25519 keygen, vault store, did:key
+│   ├── 01-create-did.ts  # mint Ed25519 key in HSM, did:key
 │   ├── 02-push-repo.ts   # create + push GitLawb repo
 │   ├── 03-llm-call.ts    # Shroud LLM call, commit generated code
 │   ├── 04-launch-token.ts# Bankr token launch
 │   └── 05-swap-fees.ts   # 1Claw Intent swap
 └── clients/
-    ├── oneclaw.ts        # vault + Intents wrappers
-    ├── gitlawb.ts        # repo create/push wrapper
-    ├── shroud.ts         # OpenAI-compatible client
+    ├── oneclaw.ts        # runtime: vault key/secret reads + Intents (agent key)
+    ├── oneclaw-admin.ts  # bootstrap: create agent, policy, store secrets (human key)
+    ├── gitlawb.ts        # gl CLI repo create/push wrapper
+    ├── shroud.ts         # OpenAI-compatible TEE proxy client
     └── bankr.ts          # token launch wrapper
 ```
 

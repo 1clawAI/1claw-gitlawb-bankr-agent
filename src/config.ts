@@ -1,27 +1,31 @@
 // Loads + validates env with zod (step 0, before the loop runs).
-// URLs have sane defaults; credentials are optional so the agent runs against
-// stubs out of the box. Missing credentials are reported as a checklist.
+//
+// Two credentials matter: the 1Claw HUMAN key (used only by `pnpm bootstrap` to
+// provision the agent) and the AGENT key (used by `pnpm agent` at runtime). All
+// third-party secrets live in the 1Claw vault and are pulled in by src/secrets.ts,
+// so a fully-provisioned run needs only ONECLAW_AGENT_API_KEY in .env.
 
 import 'dotenv/config';
 import { z } from 'zod';
 import chalk from 'chalk';
 
 const schema = z.object({
-  // 1Claw — vault + Intents
+  // 1Claw
   ONECLAW_API_URL: z.string().url().default('https://api.1claw.xyz'),
-  ONECLAW_API_KEY: z.string().default(''),
-  ONECLAW_AGENT_ID: z.string().default(''),
-  // Shroud — OpenAI-compatible TEE LLM proxy
+  ONECLAW_HUMAN_API_KEY: z.string().default(''), // bootstrap only
+  ONECLAW_AGENT_API_KEY: z.string().default(''), // runtime; written by bootstrap
+  ONECLAW_AGENT_ID: z.string().default(''), //      runtime; written by bootstrap
+  // Shroud — OpenAI-compatible TEE LLM proxy (auths with the agent key by default)
   SHROUD_API_URL: z.string().url().default('https://shroud.1claw.xyz/v1'),
   SHROUD_API_KEY: z.string().default(''),
   SHROUD_MODEL: z.string().default('claude-sonnet-4-5'),
   SHROUD_PROVIDER: z.string().default(''),
   // GitLawb — decentralized git node (gl CLI handles identity/auth)
   GITLAWB_NODE_URL: z.string().url().default('http://localhost:7545'),
-  // Bankr — token launch
+  // Bankr — token launch (normally pulled from the vault, not set here)
   BANKR_API_URL: z.string().url().default('https://api.bankr.bot'),
   BANKR_API_KEY: z.string().default(''),
-  // Farcaster fallback
+  // Farcaster fallback (normally pulled from the vault)
   NEYNAR_API_KEY: z.string().default(''),
   NEYNAR_SIGNER_UUID: z.string().default(''),
   FARCASTER_FID: z.string().default(''),
@@ -31,13 +35,10 @@ const schema = z.object({
 
 export type Config = z.infer<typeof schema>;
 
-// Credentials that real integrations need. Empty ones run against stubs for now.
-// GitLawb has no key — its client probes for the `gl` CLI at runtime instead.
-const CREDENTIAL_KEYS: Array<keyof Config> = [
-  'ONECLAW_API_KEY',
-  'SHROUD_API_KEY',
-  'BANKR_API_KEY',
-];
+// A credential minted by the offline bootstrap (no human key) contains `_stub_`
+// and is not a real key — treat it as unprovisioned so `pnpm agent` still runs
+// end-to-end against stubs.
+export const isProvisioned = (key: string): boolean => !!key && !key.includes('_stub_');
 
 export function loadConfig(): Config {
   // Treat blank .env entries (e.g. `BANKR_API_URL=`) as unset so the schema
@@ -53,11 +54,10 @@ export function loadConfig(): Config {
     process.exit(1);
   }
 
-  const missing = CREDENTIAL_KEYS.filter((k) => !parsed.data[k]);
-  if (missing.length > 0) {
-    console.log(chalk.yellow.bold('⚠ running with stubbed integrations — missing credentials:'));
-    for (const key of missing) console.log(chalk.yellow(`  ○ ${key}`));
-    console.log(chalk.dim('  these stages will return mock data until you fill in .env.\n'));
+  // The agent only needs its own key; everything else comes from the vault.
+  if (!parsed.data.ONECLAW_AGENT_API_KEY) {
+    console.log(chalk.yellow.bold('⚠ no ONECLAW_AGENT_API_KEY — running against stubs.'));
+    console.log(chalk.dim('  run `pnpm bootstrap` to provision an agent + vault, or fill in .env.\n'));
   }
 
   return parsed.data;
