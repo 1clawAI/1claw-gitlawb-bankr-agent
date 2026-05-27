@@ -7,18 +7,21 @@ import { z } from 'zod';
 import chalk from 'chalk';
 
 const schema = z.object({
-  // 1Claw
+  // 1Claw — vault + Intents
   ONECLAW_API_URL: z.string().url().default('https://api.1claw.xyz'),
   ONECLAW_API_KEY: z.string().default(''),
-  // Shroud
+  ONECLAW_AGENT_ID: z.string().default(''),
+  // Shroud — OpenAI-compatible TEE LLM proxy
   SHROUD_API_URL: z.string().url().default('https://shroud.1claw.xyz/v1'),
   SHROUD_API_KEY: z.string().default(''),
   SHROUD_MODEL: z.string().default('claude-sonnet-4-5'),
-  // GitLawb
-  GITLAWB_API_URL: z.string().url().default('https://api.gitlawb.com'),
-  GITLAWB_TOKEN: z.string().default(''),
-  // Bankr / Farcaster fallback
-  BANKR_API_URL: z.string().default(''),
+  SHROUD_PROVIDER: z.string().default(''),
+  // GitLawb — decentralized git node (gl CLI handles identity/auth)
+  GITLAWB_NODE_URL: z.string().url().default('http://localhost:7545'),
+  // Bankr — token launch
+  BANKR_API_URL: z.string().url().default('https://api.bankr.bot'),
+  BANKR_API_KEY: z.string().default(''),
+  // Farcaster fallback
   NEYNAR_API_KEY: z.string().default(''),
   NEYNAR_SIGNER_UUID: z.string().default(''),
   FARCASTER_FID: z.string().default(''),
@@ -29,15 +32,18 @@ const schema = z.object({
 export type Config = z.infer<typeof schema>;
 
 // Credentials that real integrations need. Empty ones run against stubs for now.
-// TODO(spec): once the real clients land, promote these to hard requirements.
+// GitLawb has no key — its client probes for the `gl` CLI at runtime instead.
 const CREDENTIAL_KEYS: Array<keyof Config> = [
   'ONECLAW_API_KEY',
   'SHROUD_API_KEY',
-  'GITLAWB_TOKEN',
+  'BANKR_API_KEY',
 ];
 
 export function loadConfig(): Config {
-  const parsed = schema.safeParse(process.env);
+  // Treat blank .env entries (e.g. `BANKR_API_URL=`) as unset so the schema
+  // defaults apply, rather than failing URL validation on an empty string.
+  const raw = Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== ''));
+  const parsed = schema.safeParse(raw);
   if (!parsed.success) {
     console.error(chalk.red.bold('config error — invalid environment:'));
     for (const issue of parsed.error.issues) {
