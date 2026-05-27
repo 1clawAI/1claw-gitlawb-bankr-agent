@@ -54,12 +54,14 @@ integration one at a time.
 
 | Var | Used by | Required for real run |
 |-----|---------|-----------------------|
-| `ONECLAW_API_URL` / `ONECLAW_API_KEY` | steps 1 & 5 | yes |
+| `ONECLAW_API_URL` / `ONECLAW_API_KEY` / `ONECLAW_AGENT_ID` | steps 1 & 5 | yes |
 | `SHROUD_API_URL` / `SHROUD_API_KEY` / `SHROUD_MODEL` | step 3 | yes |
-| `GITLAWB_API_URL` / `GITLAWB_TOKEN` | step 2 | yes |
-| `BANKR_API_URL` | step 4 (preferred) | one of these |
-| `NEYNAR_API_KEY` / `NEYNAR_SIGNER_UUID` / `FARCASTER_FID` | step 4 (fallback) | one of these |
+| `GITLAWB_NODE_URL` (+ the `gl` CLI installed) | step 2 | yes |
+| `BANKR_API_URL` / `BANKR_API_KEY` | step 4 | yes |
+| `NEYNAR_API_KEY` / `NEYNAR_SIGNER_UUID` / `FARCASTER_FID` | step 4 (Farcaster fallback) | optional |
 | `BASE_RPC_URL` | step 5 | yes |
+
+Blank entries in `.env` are treated as unset, so defaults (the URLs above) apply.
 
 ## Project layout
 
@@ -85,5 +87,27 @@ src/
 
 ## Status
 
-Scaffold with stubbed clients. Search for `TODO(spec)` to find the API shapes
-that still need to be confirmed against the real services.
+Each client now follows the real API surface documented by its service (see
+[1Claw docs](https://docs.1claw.xyz/), [Bankr docs](https://docs.bankr.bot/),
+[GitLawb node](https://github.com/Gitlawb/node)); when a credential is missing it
+falls back to a stub so `pnpm agent` always runs end to end. Search for
+`TODO(spec)` for the shapes still to be confirmed against live endpoints.
+
+**Confirmed from docs and wired up:**
+- **Shroud** — OpenAI-compatible body, auth via `X-Shroud-Agent-Key`, provider
+  picked with `X-Shroud-Provider` (`claude-*` → `anthropic`).
+- **Bankr** — `POST /agent/prompt` → poll `GET /agent/job/{jobId}`; `X-API-Key` auth.
+- **GitLawb** — CLI-first (`gl repo create` + `gitlawb://` git remote via execa).
+
+**Open questions for the spec author:**
+- **1Claw key custody** — the spec's step 1 generates the key locally and POSTs the
+  private key to the vault. 1Claw's docs say keys are minted *inside* the HSM, so
+  this client now requests generation and receives only `{ keyId, publicKey }`. The
+  private key never leaves the HSM. Confirm the vault generate endpoint + response.
+- **1Claw Intents** — docs reference `POST /v1/agents/:id/transactions`; reconcile
+  the exact field names (`chain`/`recipient`/signing-key-path vs `chainId`/`to`/`keyId`).
+- **GitLawb identity** — `gl identity new` mints its own did:key; confirm how to make
+  the repo owned by the vaulted DID from step 1 (`gl identity import`?).
+- **Bankr token launch** — currently parses the contract address from the agent's
+  reply; the structured Deploy API would be more robust.
+- **Step 5 swap calldata** — Uniswap V4 router address + token→USDC calldata are stubbed.
