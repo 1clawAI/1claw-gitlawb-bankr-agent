@@ -1,0 +1,22 @@
+# Gemini Code Assist / Firebase Studio exclusions (gitignore syntax).
+# Files Gemini must never read, index, or send to a model.
+
+# Secrets & environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.keystore
+secrets/
+
+# Dependencies & build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Lockfiles & generated artifacts (noise for the model)
+pnpm-lock.yaml
+run-summary.json
+*.log

@@ -1,0 +1,9 @@
+# Paths Cursor should not index (still readable on explicit request, never auto-indexed).
+node_modules/
+dist/
+pnpm-lock.yaml
+run-summary.json
+*.log
+.env
+.env.*
+!.env.example

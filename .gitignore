@@ -1,6 +1,35 @@
+# dependencies
 node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# env / secrets — never commit
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.keystore
+secrets/
+
+# runtime artifacts
 run-summary.json
 *.log
+
+# os / editor cruft
 .DS_Store
-dist/
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# AI tool local state (keep the ignore configs, drop caches/sessions)
+.claude/settings.local.json
+.aider*
+!.aiderignore
+.windsurf/
+.continue/
+.codeium/
