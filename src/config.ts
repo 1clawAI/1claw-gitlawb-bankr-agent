@@ -36,11 +36,6 @@ const schema = z.object({
 
 export type Config = z.infer<typeof schema>;
 
-// A credential minted by the offline bootstrap (no human key) contains `_stub_`
-// and is not a real key — treat it as unprovisioned so `pnpm agent` still runs
-// end-to-end against stubs.
-export const isProvisioned = (key: string): boolean => !!key && !key.includes('_stub_');
-
 export function loadConfig(): Config {
   // Treat blank .env entries (e.g. `BANKR_API_URL=`) as unset so the schema
   // defaults apply, rather than failing URL validation on an empty string.
@@ -53,12 +48,6 @@ export function loadConfig(): Config {
     }
     console.error(chalk.dim('  copy .env.example to .env and fill in the keys.'));
     process.exit(1);
-  }
-
-  // The agent only needs its own key; everything else comes from the vault.
-  if (!parsed.data.ONECLAW_AGENT_API_KEY) {
-    console.log(chalk.yellow.bold('⚠ no ONECLAW_AGENT_API_KEY — running against stubs.'));
-    console.log(chalk.dim('  run `pnpm bootstrap` to provision an agent + vault, or fill in .env.\n'));
   }
 
   return parsed.data;

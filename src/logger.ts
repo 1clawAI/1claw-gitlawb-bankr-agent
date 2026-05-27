@@ -12,10 +12,6 @@ export function detail(key: string, value: string): void {
   console.log(`  ${chalk.dim(`${key}:`)} ${value}`);
 }
 
-export function stub(msg: string): void {
-  console.log(`  ${chalk.yellow('⊘ stub:')} ${chalk.dim(msg)}`);
-}
-
 export function stepDone(n: number, total: number, seconds: string, extra?: string): void {
   const tail = extra ? ` — ${extra}` : '';
   console.log(chalk.green(`[step ${n}/${total}] done in ${seconds}s${tail}`));

@@ -1,11 +1,11 @@
 // The single source of truth for which third-party secrets live in the 1Claw
 // vault. Used by `pnpm bootstrap` to prompt for + store them, and by `pnpm agent`
 // to pull them back at runtime — so step code just reads config and never cares
-// whether a value came from the vault or a local .env fallback.
+// whether a value came from the vault or a local .env override.
 
 import { getSecret } from './clients/oneclaw.js';
 import * as log from './logger.js';
-import { isProvisioned, type Config } from './config.js';
+import type { Config } from './config.js';
 
 export interface VaultSecret {
   vaultName: string; // key in the 1Claw vault
@@ -24,7 +24,7 @@ export const VAULT_SECRETS: VaultSecret[] = [
 // Shroud reuses the agent's own 1Claw key, so no separate secret is needed there.
 export async function resolveSecrets(config: Config): Promise<Config> {
   const resolved: Config = { ...config };
-  if (!isProvisioned(config.ONECLAW_AGENT_API_KEY)) return resolved; // stay on env/stubs
+  if (!config.ONECLAW_AGENT_API_KEY || !config.ONECLAW_VAULT_ID) return resolved;
 
   let pulled = 0;
   for (const secret of VAULT_SECRETS) {

@@ -18,6 +18,16 @@ import type { AgentContext, RunSummary, StepResult } from './types.js';
 
 const TOTAL = 5;
 
+function requireAgentConfig(config: Config): void {
+  const missing: string[] = [];
+  if (!config.ONECLAW_AGENT_API_KEY) missing.push('ONECLAW_AGENT_API_KEY');
+  if (!config.ONECLAW_AGENT_ID) missing.push('ONECLAW_AGENT_ID');
+  if (!config.ONECLAW_VAULT_ID) missing.push('ONECLAW_VAULT_ID');
+  if (missing.length) {
+    throw new Error(`missing required config: ${missing.join(', ')} — run \`pnpm bootstrap\` first`);
+  }
+}
+
 type StepFn = (ctx: AgentContext, config: Config) => Promise<StepResult>;
 
 const STEPS: Array<{ n: number; label: string; fn: StepFn }> = [
@@ -29,8 +39,10 @@ const STEPS: Array<{ n: number; label: string; fn: StepFn }> = [
 ];
 
 async function main(): Promise<void> {
+  const baseConfig = loadConfig();
+  requireAgentConfig(baseConfig);
   // Load the agent key, then pull third-party secrets from the 1Claw vault.
-  const config = await resolveSecrets(loadConfig());
+  const config = await resolveSecrets(baseConfig);
   const ctx: AgentContext = {};
   const startedAt = new Date().toISOString();
   let ok = true;

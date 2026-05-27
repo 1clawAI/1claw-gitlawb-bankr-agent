@@ -5,7 +5,6 @@
 // bootstrap-from-template endpoint; here we use the direct human-key flow.)
 
 import { withTimeout, DEFAULT_TIMEOUT_MS } from '../util/timeout.js';
-import * as log from '../logger.js';
 import type { Config } from '../config.js';
 
 export interface ProvisionedAgent {
@@ -18,7 +17,11 @@ const human = (config: Config) => ({
   authorization: `Bearer ${config.ONECLAW_HUMAN_API_KEY}`,
 });
 
-const hasHumanKey = (config: Config) => !!config.ONECLAW_HUMAN_API_KEY;
+function requireHumanKey(config: Config): void {
+  if (!config.ONECLAW_HUMAN_API_KEY) {
+    throw new Error('ONECLAW_HUMAN_API_KEY is required — set your 1ck_… key in .env');
+  }
+}
 
 async function post(config: Config, path: string, body: unknown, label: string): Promise<any> {
   return withTimeout(label, DEFAULT_TIMEOUT_MS, async (signal) => {
@@ -35,11 +38,7 @@ async function post(config: Config, path: string, body: unknown, label: string):
 
 // Create an agent with Base intents enabled; returns its own scoped key.
 export async function createAgent(config: Config, name: string): Promise<ProvisionedAgent> {
-  if (!hasHumanKey(config)) {
-    log.stub('1claw admin — no human key, simulating agent provisioning locally');
-    const id = `agt_stub_${Date.now().toString(36)}`;
-    return { agentId: id, agentApiKey: `ak_stub_${Date.now().toString(36)}` };
-  }
+  requireHumanKey(config);
   // Guardrails are fields on the agent record (not a separate policy).
   const json = await post(
     config,
@@ -58,17 +57,14 @@ export async function createAgent(config: Config, name: string): Promise<Provisi
 
 // Create a vault to hold the agent's third-party secrets; returns its id.
 export async function createVault(config: Config, name: string): Promise<string> {
-  if (!hasHumanKey(config)) {
-    log.stub('1claw admin — no human key, simulating vault creation');
-    return `vault_stub_${Date.now().toString(36)}`;
-  }
+  requireHumanKey(config);
   const json = await post(config, '/v1/vaults', { name }, '1claw create vault');
   return json.id ?? json.vault?.id;
 }
 
 // Let the agent read every secret in the vault.
 export async function grantAgentRead(config: Config, vaultId: string, agentId: string): Promise<void> {
-  if (!hasHumanKey(config)) return;
+  requireHumanKey(config);
   await post(
     config,
     `/v1/vaults/${vaultId}/policies`,
@@ -79,20 +75,14 @@ export async function grantAgentRead(config: Config, vaultId: string, agentId: s
 
 // Provision the agent's signing key for a chain (the HSM holds the private key).
 export async function provisionSigningKey(config: Config, agentId: string, chain: string): Promise<string> {
-  if (!hasHumanKey(config)) {
-    log.stub(`1claw admin — no human key, skipping ${chain} signing key`);
-    return '0x0000000000000000000000000000000000000000';
-  }
+  requireHumanKey(config);
   const json = await post(config, `/v1/agents/${agentId}/signing-keys`, { chain }, '1claw signing key');
   return json.address;
 }
 
 // Store a third-party secret in the vault by path.
 export async function putSecret(config: Config, vaultId: string, path: string, value: string): Promise<void> {
-  if (!hasHumanKey(config)) {
-    log.stub(`1claw admin — no human key, not storing "${path}" in vault`);
-    return;
-  }
+  requireHumanKey(config);
   await withTimeout(`1claw put secret ${path}`, DEFAULT_TIMEOUT_MS, async (signal) => {
     const res = await fetch(
       `${config.ONECLAW_API_URL}/v1/vaults/${vaultId}/secrets/${encodeURIComponent(path)}`,

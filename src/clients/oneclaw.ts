@@ -4,10 +4,8 @@
 // signing Intents (step 5). Signing keys live in the HSM; nothing private leaves.
 
 import { randomUUID } from 'node:crypto';
-import * as ed from '@noble/ed25519';
 import { withTimeout, DEFAULT_TIMEOUT_MS } from '../util/timeout.js';
-import * as log from '../logger.js';
-import { isProvisioned, type Config } from '../config.js';
+import type { Config } from '../config.js';
 
 export interface AgentIdentity {
   agentId: string;
@@ -36,10 +34,8 @@ function rawEd25519FromSsh(sshKey: string): Uint8Array {
 // Read the agent's auto-provisioned identity key from GET /v1/agents/me.
 // The agent already has an Ed25519 keypair, so the DID is derived, not minted.
 export async function getAgentIdentity(config: Config): Promise<AgentIdentity> {
-  if (!isProvisioned(config.ONECLAW_AGENT_API_KEY)) {
-    log.stub('1claw — no agent key, deriving DID from a local key (the HSM holds it in prod)');
-    const publicKey = await ed.getPublicKeyAsync(ed.utils.randomPrivateKey());
-    return { agentId: `agt_stub_${Date.now().toString(36)}`, publicKey };
+  if (!config.ONECLAW_AGENT_API_KEY) {
+    throw new Error('[step 1] 1claw: ONECLAW_AGENT_API_KEY is required — run `pnpm bootstrap` first');
   }
 
   return withTimeout('1claw agents/me', DEFAULT_TIMEOUT_MS, async (signal) => {
@@ -53,7 +49,7 @@ export async function getAgentIdentity(config: Config): Promise<AgentIdentity> {
 // Read a secret the bootstrap stored in the vault. Returns undefined when the
 // agent isn't provisioned or the secret is absent (caller falls back to env).
 export async function getSecret(config: Config, path: string): Promise<string | undefined> {
-  if (!isProvisioned(config.ONECLAW_AGENT_API_KEY) || !config.ONECLAW_VAULT_ID) return undefined;
+  if (!config.ONECLAW_AGENT_API_KEY || !config.ONECLAW_VAULT_ID) return undefined;
 
   return withTimeout(`1claw vault read ${path}`, DEFAULT_TIMEOUT_MS, async (signal) => {
     const res = await fetch(
@@ -69,9 +65,8 @@ export async function getSecret(config: Config, path: string): Promise<string | 
 // Submit a transaction Intent. The HSM signs with the agent's Base signing key
 // and broadcasts; we poll until a tx hash appears.
 export async function submitIntent(config: Config, body: IntentRequest): Promise<{ txHash: string }> {
-  if (!isProvisioned(config.ONECLAW_AGENT_API_KEY)) {
-    log.stub('1claw intents — no agent key, returning mock txHash');
-    return { txHash: `0x${'ab'.repeat(32)}` };
+  if (!config.ONECLAW_AGENT_API_KEY) {
+    throw new Error('[step 5] 1claw intents: ONECLAW_AGENT_API_KEY is required — run `pnpm bootstrap` first');
   }
   if (!config.ONECLAW_AGENT_ID) {
     throw new Error('[step 5] 1claw intents: ONECLAW_AGENT_ID is required (intents are agent-scoped)');

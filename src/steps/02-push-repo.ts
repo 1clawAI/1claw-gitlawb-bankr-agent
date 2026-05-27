@@ -31,7 +31,7 @@ export async function pushRepo(ctx: AgentContext, config: Config): Promise<StepR
     repoUrl,
     path: 'agent.ts',
     content: '// placeholder — replaced by LLM-generated code in step 3\n',
-    message: 'chore: stub agent.ts',
+    message: 'chore: placeholder agent.ts',
   });
 
   return {

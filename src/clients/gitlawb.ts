@@ -2,13 +2,11 @@
 // Per github.com/Gitlawb/node the surface is CLI-first: the `gl` binary plus a
 // `git-remote-gitlawb` helper that makes `gitlawb://<did>/<repo>` URLs work with
 // native git. Identity is Ed25519/did:key; auth is HTTP Signatures (no token).
-// We shell out via execa, and fall back to stubs when `gl` isn't installed.
 
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import * as log from '../logger.js';
 import type { Config } from '../config.js';
 
 export interface CreateRepoRequest {
@@ -23,20 +21,16 @@ export interface PushFileRequest {
   message: string;
 }
 
-async function glAvailable(): Promise<boolean> {
+async function requireGl(): Promise<void> {
   try {
     await execa('gl', ['--version']);
-    return true;
   } catch {
-    return false;
+    throw new Error('[step 2] gitlawb: `gl` CLI not found — install from https://github.com/Gitlawb/node');
   }
 }
 
 export async function createRepo(config: Config, body: CreateRepoRequest): Promise<{ repoUrl: string }> {
-  if (!(await glAvailable())) {
-    log.stub('gitlawb — `gl` CLI not found, returning mock repo URL');
-    return { repoUrl: `gitlawb://${body.owner}/${body.name}` };
-  }
+  await requireGl();
 
   // TODO(spec): reconcile identity — `gl identity new` creates its own did:key,
   // but our DID comes from the 1Claw vault (step 1). Confirm `gl identity import`
@@ -48,10 +42,7 @@ export async function createRepo(config: Config, body: CreateRepoRequest): Promi
 }
 
 export async function pushFile(config: Config, body: PushFileRequest): Promise<void> {
-  if (!(await glAvailable())) {
-    log.stub(`gitlawb — \`gl\` CLI not found, skipping push of ${body.path}`);
-    return;
-  }
+  await requireGl();
 
   // TODO(spec): confirm the push flow. This drives native git through the
   // git-remote-gitlawb helper (one commit per file); a `gl` push subcommand may

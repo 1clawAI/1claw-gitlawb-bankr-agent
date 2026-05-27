@@ -31,8 +31,9 @@ async function main(): Promise<void> {
   const config = loadConfig();
   console.log(chalk.cyan.bold('\n1Claw bootstrap — provisioning your agent\n'));
   if (!config.ONECLAW_HUMAN_API_KEY) {
-    console.log(chalk.yellow('⚠ no ONECLAW_HUMAN_API_KEY set — simulating provisioning locally.'));
-    console.log(chalk.dim('  set your 1ck_… key in .env to provision a real agent + vault.\n'));
+    console.error(chalk.red.bold('ONECLAW_HUMAN_API_KEY is required'));
+    console.error(chalk.dim('  set your 1ck_… key in .env — see https://docs.1claw.xyz\n'));
+    process.exit(1);
   }
 
   // 1. Create the agent (Base intents enabled) — it receives its own ocv_ key.

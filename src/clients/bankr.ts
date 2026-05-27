@@ -4,7 +4,6 @@
 // contains the deployed Base contract address. A structured Deploy API also exists.
 
 import { withTimeout, TimeoutError } from '../util/timeout.js';
-import * as log from '../logger.js';
 import type { Config } from '../config.js';
 
 export interface LaunchTokenRequest {
@@ -33,8 +32,7 @@ interface JobResponse {
 
 export async function launchToken(config: Config, body: LaunchTokenRequest): Promise<{ tokenAddress: string }> {
   if (!config.BANKR_API_KEY) {
-    log.stub('bankr — no BANKR_API_KEY, returning mock token address');
-    return { tokenAddress: `0x${'cd'.repeat(20)}` };
+    throw new Error('[step 4] bankr: BANKR_API_KEY is required — store it in the 1Claw vault via `pnpm bootstrap` or set it in .env');
   }
 
   // TODO(spec): prefer the structured Deploy API

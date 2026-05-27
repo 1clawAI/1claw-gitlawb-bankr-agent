@@ -5,41 +5,7 @@
 
 import OpenAI from 'openai';
 import { withTimeout, DEFAULT_TIMEOUT_MS } from '../util/timeout.js';
-import * as log from '../logger.js';
-import { isProvisioned, type Config } from '../config.js';
-
-// Canned output used when no SHROUD_API_KEY is set, so the scaffold runs offline.
-const CANNED_MCP_SERVER = `import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-
-const server = new Server(
-  { name: 'get-time-server', version: '1.0.0' },
-  { capabilities: { tools: {} } },
-);
-
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name: 'get-time',
-      description: 'Returns the current time as an ISO 8601 timestamp.',
-      inputSchema: { type: 'object', properties: {} },
-    },
-  ],
-}));
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  if (request.params.name !== 'get-time') {
-    throw new Error(\`unknown tool: \${request.params.name}\`);
-  }
-  return { content: [{ type: 'text', text: new Date().toISOString() }] };
-});
-
-await server.connect(new StdioServerTransport());
-`;
+import type { Config } from '../config.js';
 
 // Shroud auto-detects the provider from the model name; mirror that here.
 function providerFor(model: string): string {
@@ -53,9 +19,8 @@ export async function generateCode(config: Config, prompt: string): Promise<stri
   // Shroud authenticates with the agent's own 1Claw key; SHROUD_API_KEY is an
   // optional override for using a separate proxy key.
   const shroudKey = config.SHROUD_API_KEY || config.ONECLAW_AGENT_API_KEY;
-  if (!isProvisioned(shroudKey)) {
-    log.stub('shroud — no agent/Shroud key, returning canned MCP server');
-    return CANNED_MCP_SERVER;
+  if (!shroudKey) {
+    throw new Error('[step 3] shroud: ONECLAW_AGENT_API_KEY (or SHROUD_API_KEY) is required');
   }
 
   const provider = config.SHROUD_PROVIDER || providerFor(config.SHROUD_MODEL);

@@ -42,15 +42,14 @@ artifact (DID, repo URL, token address, swap tx hash).
 
 ```bash
 pnpm install
-cp .env.example .env          # add only your 1Claw HUMAN key
+cp .env.example .env          # add your 1Claw HUMAN key
 pnpm bootstrap                # provisions agent + vault, prompts for other secrets
 pnpm agent                    # runs with the agent key; pulls secrets from 1Claw
 ```
 
-With an empty `.env` everything still runs **end-to-end against stubs** — every
-external call returns mock data, the DID is generated with real crypto, and
-`run-summary.json` is written. So you can `pnpm agent` immediately, then bootstrap
-real credentials when you're ready.
+Both commands require real credentials — `pnpm bootstrap` needs `ONECLAW_HUMAN_API_KEY`,
+and `pnpm agent` needs the agent key, vault id, and third-party secrets (Bankr, GitLawb CLI)
+written by bootstrap.
 
 ### How secrets work (two keys, vault-held)
 
@@ -116,8 +115,8 @@ src/
 
 ## Status
 
-Each client follows the real API surface of its service; when a credential is
-missing it falls back to a stub so `pnpm agent` always runs end to end.
+Each client follows the real API surface of its service. Missing credentials or
+the GitLawb `gl` CLI cause the run to fail fast with a clear error.
 
 **1Claw** — wired to the real API ([docs](https://docs.1claw.xyz/)):
 - Bootstrap (human `1ck_` key): `POST /v1/agents` (guardrails inline: `intents_api_enabled`,
