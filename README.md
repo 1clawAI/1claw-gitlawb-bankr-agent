@@ -1,4 +1,4 @@
-# 1Claw × GitLawb reference agent
+# 1Claw × GitLawb × Bankr agent
 
 A single-command autonomous agent that runs the full Bankr agentic dev stack end
 to end. In one `pnpm agent` it:
