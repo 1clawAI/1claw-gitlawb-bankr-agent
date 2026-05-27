@@ -19,7 +19,7 @@ const schema = z.object({
   // Shroud — OpenAI-compatible TEE LLM proxy (auths with the agent key by default)
   SHROUD_API_URL: z.string().url().default('https://shroud.1claw.xyz/v1'),
   SHROUD_API_KEY: z.string().default(''),
-  SHROUD_MODEL: z.string().default('claude-sonnet-4-5-20250929'),
+  SHROUD_MODEL: z.string().default('gpt-4o-mini'),
   SHROUD_PROVIDER: z.string().default(''),
   // GitLawb — decentralized git node (gl CLI handles identity/auth)
   GITLAWB_NODE_URL: z.string().url().default('http://localhost:7545'),

@@ -10,7 +10,7 @@ import type { AgentContext, StepResult } from '../types.js';
 const SYMBOL = 'AGENT';
 
 export async function launchTokenStep(ctx: AgentContext, config: Config): Promise<StepResult> {
-  const name = `Agent ${ctx.did!.slice(-6)}`;
+  const name = `Agent ${ctx.keyId!.split('-')[0]}`;
   log.detail('name', name);
   log.detail('symbol', SYMBOL);
 

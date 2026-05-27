@@ -16,11 +16,14 @@ function providerFor(model: string): string {
 }
 
 export async function generateCode(config: Config, prompt: string): Promise<string> {
-  // Shroud authenticates with the agent's own 1Claw key; SHROUD_API_KEY is an
-  // optional override for using a separate proxy key.
-  const shroudKey = config.SHROUD_API_KEY || config.ONECLAW_AGENT_API_KEY;
+  // Shroud authenticates with "agent_id:api_key" (or SHROUD_API_KEY override).
+  const shroudKey =
+    config.SHROUD_API_KEY ||
+    (config.ONECLAW_AGENT_ID && config.ONECLAW_AGENT_API_KEY
+      ? `${config.ONECLAW_AGENT_ID}:${config.ONECLAW_AGENT_API_KEY}`
+      : '');
   if (!shroudKey) {
-    throw new Error('[step 3] shroud: ONECLAW_AGENT_API_KEY (or SHROUD_API_KEY) is required');
+    throw new Error('[step 3] shroud: ONECLAW_AGENT_ID + ONECLAW_AGENT_API_KEY (or SHROUD_API_KEY) is required');
   }
 
   const provider = config.SHROUD_PROVIDER || providerFor(config.SHROUD_MODEL);

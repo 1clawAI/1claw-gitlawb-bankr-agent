@@ -1,9 +1,8 @@
 // Bankr client — launches a token tied to the repo (step 4).
-// Per docs.bankr.bot the documented agent flow is: POST /agent/prompt -> { jobId },
-// then poll GET /agent/job/{jobId} until status === 'completed'. The reply text
-// contains the deployed Base contract address. A structured Deploy API also exists.
+// Uses POST /token-launches/deploy (structured deploy API). The legacy
+// /agent/prompt flow requires Bankr Club and is not used here.
 
-import { withTimeout, TimeoutError } from '../util/timeout.js';
+import { withTimeout } from '../util/timeout.js';
 import type { Config } from '../config.js';
 
 export interface LaunchTokenRequest {
@@ -13,65 +12,65 @@ export interface LaunchTokenRequest {
   repoUrl: string;
 }
 
-// Token deploys take longer than the 30s I/O default, so the whole poll gets a
-// wider budget; each individual fetch still inherits its own request timeout.
 const LAUNCH_TIMEOUT_MS = 90_000;
-const POLL_INTERVAL_MS = 2_000;
 const ADDRESS_RE = /0x[a-fA-F0-9]{40}/;
 
-interface PromptResponse {
-  success: boolean;
-  jobId: string;
-}
-interface JobResponse {
-  success: boolean;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  response?: string;
+interface DeployResponse {
+  success?: boolean;
+  tokenAddress?: string;
+  txHash?: string;
   error?: string;
+  message?: string;
+}
+
+function parseBankrError(status: number, body: string): string {
+  try {
+    const parsed = JSON.parse(body) as DeployResponse;
+    const detail = parsed.message ?? parsed.error ?? body;
+    if (status === 403 && detail.toLowerCase().includes('bankr club')) {
+      return `[step 4] bankr: Token Launch API requires Bankr Club — join at https://bankr.bot/club, then re-run \`pnpm agent\``;
+    }
+    if (status === 403 && detail.toLowerCase().includes('24 hours')) {
+      return `[step 4] bankr: wallet must be 24h old before token deploy — ${detail}`;
+    }
+      return `[step 4] bankr: API key is read-only — enable write access (and Token Launch) at https://bankr.bot/api, then update the vault secret or set BANKR_API_KEY in .env`;
+    }
+    return `[step 4] bankr deploy failed: ${status} ${detail}`;
+  } catch {
+    return `[step 4] bankr deploy failed: ${status} ${body}`;
+  }
 }
 
 export async function launchToken(config: Config, body: LaunchTokenRequest): Promise<{ tokenAddress: string }> {
   if (!config.BANKR_API_KEY) {
-    throw new Error('[step 4] bankr: BANKR_API_KEY is required — store it in the 1Claw vault via `pnpm bootstrap` or set it in .env');
+    throw new Error(
+      '[step 4] bankr: BANKR_API_KEY is required — store a read-write key in the 1Claw vault via `pnpm bootstrap` or set it in .env',
+    );
   }
 
-  // TODO(spec): prefer the structured Deploy API
-  // (POST /token-launch/deploy per docs.bankr.bot/token-launching) over parsing
-  // the agent's free-text reply, once its request/response schema is confirmed.
   const headers = { 'content-type': 'application/json', 'X-API-Key': config.BANKR_API_KEY };
-  const prompt =
-    `Launch a token named "${body.name}" with symbol $${body.symbol} on Base. ` +
-    `Associate it with the repo ${body.repoUrl}.`;
+  const payload = {
+    tokenName: body.name,
+    tokenSymbol: body.symbol,
+    description: `Autonomous 1Claw agent token. Owner DID: ${body.ownerDid}. Repo: ${body.repoUrl}`,
+    websiteUrl: body.repoUrl.startsWith('gitlawb://') ? undefined : body.repoUrl,
+  };
 
-  return withTimeout('bankr token launch', LAUNCH_TIMEOUT_MS, async (signal) => {
-    const submit = await fetch(`${config.BANKR_API_URL}/agent/prompt`, {
+  return withTimeout('bankr token deploy', LAUNCH_TIMEOUT_MS, async (signal) => {
+    const res = await fetch(`${config.BANKR_API_URL}/token-launches/deploy`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify(payload),
       signal,
     });
-    if (!submit.ok) {
-      throw new Error(`[step 4] bankr launch failed: ${submit.status} ${await submit.text()}`);
-    }
-    const { jobId } = (await submit.json()) as PromptResponse;
+    const text = await res.text();
+    if (!res.ok) throw new Error(parseBankrError(res.status, text));
 
-    // Poll until the job completes (or the outer timeout aborts the loop).
-    while (!signal.aborted) {
-      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-      const poll = await fetch(`${config.BANKR_API_URL}/agent/job/${jobId}`, { headers, signal });
-      if (!poll.ok) {
-        throw new Error(`[step 4] bankr job poll failed: ${poll.status} ${await poll.text()}`);
-      }
-      const job = (await poll.json()) as JobResponse;
-      if (job.status === 'failed') throw new Error(`[step 4] bankr launch failed: ${job.error ?? 'unknown'}`);
-      if (job.status === 'completed') {
-        const tokenAddress = job.response?.match(ADDRESS_RE)?.[0];
-        if (!tokenAddress) {
-          throw new Error(`[step 4] bankr launch: no contract address in reply: ${job.response ?? ''}`);
-        }
-        return { tokenAddress };
-      }
+    const data = JSON.parse(text) as DeployResponse;
+    const tokenAddress = data.tokenAddress ?? text.match(ADDRESS_RE)?.[0];
+    if (!tokenAddress) {
+      throw new Error(`[step 4] bankr deploy: no tokenAddress in response: ${text}`);
     }
-    throw new TimeoutError('bankr token launch', LAUNCH_TIMEOUT_MS);
+    return { tokenAddress };
   });
 }

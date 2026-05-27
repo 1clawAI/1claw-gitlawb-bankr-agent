@@ -11,7 +11,6 @@ import type { Config } from '../config.js';
 
 export interface CreateRepoRequest {
   name: string;
-  owner: string; // the agent's did:key
 }
 
 export interface PushFileRequest {
@@ -21,36 +20,85 @@ export interface PushFileRequest {
   message: string;
 }
 
-async function requireGl(): Promise<void> {
+const glEnv = (config: Config): NodeJS.ProcessEnv => ({
+  ...process.env,
+  PATH: `${process.env.HOME}/.local/bin:${process.env.PATH ?? ''}`,
+  GITLAWB_NODE: config.GITLAWB_NODE_URL,
+});
+
+async function requireGl(config: Config): Promise<void> {
+  const env = glEnv(config);
   try {
-    await execa('gl', ['--version']);
+    await execa('gl', ['--version'], { env });
   } catch {
-    throw new Error('[step 2] gitlawb: `gl` CLI not found — install from https://github.com/Gitlawb/node');
+    throw new Error('[step 2] gitlawb: `gl` CLI not found — install from https://gitlawb.com/start');
   }
 }
 
-export async function createRepo(config: Config, body: CreateRepoRequest): Promise<{ repoUrl: string }> {
-  await requireGl();
+async function ensureGlIdentity(config: Config): Promise<void> {
+  const env = glEnv(config);
+  try {
+    await execa('gl', ['identity', 'show'], { env });
+  } catch {
+    await execa('gl', ['identity', 'new'], { env });
+  }
+}
 
-  // TODO(spec): reconcile identity — `gl identity new` creates its own did:key,
-  // but our DID comes from the 1Claw vault (step 1). Confirm `gl identity import`
-  // (or equivalent) so the repo is owned by the vaulted DID, and confirm the
-  // exact `gl register` / `gl repo create` flags.
-  await execa('gl', ['register', '--node', config.GITLAWB_NODE_URL]).catch(() => undefined);
-  await execa('gl', ['repo', 'create', body.name, '--description', 'autonomous 1Claw reference agent repo']);
-  return { repoUrl: `gitlawb://${body.owner}/${body.name}` };
+/** DID from the local `gl` identity — repos are registered under this owner. */
+async function getGlDid(config: Config): Promise<string> {
+  const env = glEnv(config);
+  const { stdout } = await execa('gl', ['identity', 'show'], { env });
+  const did = stdout.trim();
+  if (!did.startsWith('did:key:')) {
+    throw new Error(`[step 2] gitlawb: unexpected identity from \`gl identity show\`: ${did}`);
+  }
+  return did;
+}
+
+function repoAlreadyExists(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('409') || msg.includes('already exists');
+}
+
+export async function createRepo(config: Config, body: CreateRepoRequest): Promise<{ repoUrl: string }> {
+  const env = glEnv(config);
+  await requireGl(config);
+  await ensureGlIdentity(config);
+
+  // Repos are owned by the local `gl` Ed25519 identity (HTTP Signatures auth).
+  // Step 1's 1Claw-derived DID is the agent's canonical identity elsewhere.
+  const ownerDid = await getGlDid(config);
+  await execa('gl', ['register', '--node', config.GITLAWB_NODE_URL], { env });
+  try {
+    await execa('gl', ['repo', 'create', body.name, '--description', 'autonomous 1Claw reference agent repo'], { env });
+  } catch (err) {
+    if (!repoAlreadyExists(err)) throw err;
+  }
+  return { repoUrl: `gitlawb://${ownerDid}/${body.name}` };
+}
+
+async function prepareWorktree(config: Config, repoUrl: string): Promise<string> {
+  const env = glEnv(config);
+  const work = mkdtempSync(join(tmpdir(), 'gitlawb-'));
+  try {
+    await execa('git', ['clone', '-q', repoUrl, work], { env });
+  } catch {
+    await execa('git', ['init', '-q', '-b', 'main'], { cwd: work, env });
+    await execa('git', ['remote', 'add', 'origin', repoUrl], { cwd: work, env });
+  }
+  return work;
 }
 
 export async function pushFile(config: Config, body: PushFileRequest): Promise<void> {
-  await requireGl();
+  const env = glEnv(config);
+  await requireGl(config);
+  await ensureGlIdentity(config);
 
-  // TODO(spec): confirm the push flow. This drives native git through the
-  // git-remote-gitlawb helper (one commit per file); a `gl` push subcommand may
-  // be the intended path instead.
-  const work = mkdtempSync(join(tmpdir(), 'gitlawb-'));
+  const work = await prepareWorktree(config, body.repoUrl);
   writeFileSync(join(work, body.path), body.content);
-  await execa('git', ['init', '-q', '-b', 'main'], { cwd: work });
-  await execa('git', ['add', body.path], { cwd: work });
-  await execa('git', ['commit', '-q', '-m', body.message], { cwd: work });
-  await execa('git', ['push', body.repoUrl, 'main'], { cwd: work });
+  await execa('git', ['add', body.path], { cwd: work, env });
+  const { stdout: status } = await execa('git', ['status', '--porcelain'], { cwd: work, env });
+  if (!status.trim()) return;
+  await execa('git', ['commit', '-q', '-m', body.message], { cwd: work, env });
+  await execa('git', ['push', 'origin', 'main'], { cwd: work, env });
 }

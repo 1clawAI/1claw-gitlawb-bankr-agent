@@ -9,14 +9,20 @@ import type { Config } from './config.js';
 
 export interface VaultSecret {
   vaultName: string; // key in the 1Claw vault
-  configKey: keyof Config; // where it lands in Config
+  configKey: keyof Config; // bootstrap input / runtime config field
   prompt: string; // shown during bootstrap
+  required?: boolean; // fail bootstrap if not provided
 }
 
 export const VAULT_SECRETS: VaultSecret[] = [
-  { vaultName: 'bankr_api_key', configKey: 'BANKR_API_KEY', prompt: 'Bankr API key (bk_…) for token launch' },
-  { vaultName: 'neynar_api_key', configKey: 'NEYNAR_API_KEY', prompt: 'Neynar API key (Farcaster fallback)' },
-  { vaultName: 'neynar_signer_uuid', configKey: 'NEYNAR_SIGNER_UUID', prompt: 'Neynar signer UUID (Farcaster fallback)' },
+  {
+    vaultName: 'bankr_api_key',
+    configKey: 'BANKR_API_KEY',
+    prompt: 'Bankr API key (bk_…, read-write + Token Launch) — stored in the 1Claw vault, not .env',
+    required: true,
+  },
+  { vaultName: 'neynar_api_key', configKey: 'NEYNAR_API_KEY', prompt: 'Neynar API key (Farcaster fallback, optional)' },
+  { vaultName: 'neynar_signer_uuid', configKey: 'NEYNAR_SIGNER_UUID', prompt: 'Neynar signer UUID (optional)' },
 ];
 
 // Overlay vault-held secrets onto the config. A value already set in the env wins

@@ -18,6 +18,7 @@ secrets/
 # runtime artifacts
 run-summary.json
 *.log
+agent-*                  # local gitlawb clone dirs from gl/git testing
 
 # os / editor cruft
 .DS_Store

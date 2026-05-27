@@ -20,12 +20,14 @@ This repository lives on GitLawb — decentralized git over IPFS/libp2p.
 }
 
 export async function pushRepo(ctx: AgentContext, config: Config): Promise<StepResult> {
-  const shortDid = ctx.did!.slice(-6);
-  const name = `agent-${shortDid}`;
+  // GitLawb repo names: alphanumeric, hyphens, underscores only — don't slice the DID
+  // (its multibase suffix can include ':' from the did:key:z… encoding).
+  const slug = ctx.keyId!.split('-')[0];
+  const name = `agent-${slug}`;
   log.detail('did', ctx.did!);
   log.detail('repo', name);
 
-  const { repoUrl } = await createRepo(config, { name, owner: ctx.did! });
+  const { repoUrl } = await createRepo(config, { name });
   await pushFile(config, { repoUrl, path: 'README.md', content: readme(ctx.did!), message: 'init: agent repo' });
   await pushFile(config, {
     repoUrl,
