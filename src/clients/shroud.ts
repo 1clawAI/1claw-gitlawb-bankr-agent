@@ -1,6 +1,7 @@
 // Shroud client — OpenAI-compatible LLM proxy running inside a TEE (step 3).
-// Secrets in the prompt are redacted by the proxy; we just point the openai SDK
-// at the Shroud base URL.
+// Per docs.1claw.xyz: the request/response body is OpenAI-shaped, but auth is via
+// the X-Shroud-Agent-Key header and the upstream provider is picked with
+// X-Shroud-Provider. claude-* model names route to the Anthropic provider.
 
 import OpenAI from 'openai';
 import { withTimeout, DEFAULT_TIMEOUT_MS } from '../util/timeout.js';
@@ -40,15 +41,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 await server.connect(new StdioServerTransport());
 `;
 
+// Shroud auto-detects the provider from the model name; mirror that here.
+function providerFor(model: string): string {
+  if (model.startsWith('claude')) return 'anthropic';
+  if (model.startsWith('gemini')) return 'google';
+  if (model.startsWith('gpt') || model.startsWith('o1') || model.startsWith('o3')) return 'openai';
+  return 'openai';
+}
+
 export async function generateCode(config: Config, prompt: string): Promise<string> {
   if (!config.SHROUD_API_KEY) {
     log.stub('shroud — no SHROUD_API_KEY, returning canned MCP server');
     return CANNED_MCP_SERVER;
   }
 
-  // TODO(spec): confirm Shroud base URL and whether it accepts Anthropic model
-  // names (claude-*) or only OpenAI model names. Defaulting to config.SHROUD_MODEL.
-  const client = new OpenAI({ baseURL: config.SHROUD_API_URL, apiKey: config.SHROUD_API_KEY });
+  const provider = config.SHROUD_PROVIDER || providerFor(config.SHROUD_MODEL);
+  // TODO(spec): confirm whether the base URL keeps the /v1 suffix — docs give the
+  // proxy host as https://shroud.1claw.xyz; the openai SDK posts to {baseURL}/chat/completions.
+  const client = new OpenAI({
+    baseURL: config.SHROUD_API_URL,
+    apiKey: 'shroud', // unused: Shroud authenticates via X-Shroud-Agent-Key
+    defaultHeaders: {
+      'X-Shroud-Agent-Key': config.SHROUD_API_KEY,
+      'X-Shroud-Provider': provider,
+    },
+  });
 
   return withTimeout('shroud chat completion', DEFAULT_TIMEOUT_MS, async (signal) => {
     const res = await client.chat.completions.create(
