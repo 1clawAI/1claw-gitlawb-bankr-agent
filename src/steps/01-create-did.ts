@@ -1,8 +1,8 @@
-// Step 1/5 — generate an Ed25519 keypair, store the private key in the 1Claw
-// vault, and encode the public key as a did:key. The private key is never logged.
+// Step 1/5 — mint an Ed25519 key in the 1Claw HSM vault and encode its public
+// key as a did:key. The private key is generated inside the HSM and never leaves
+// it (offline, the stub generates locally and discards the private half).
 
-import * as ed from '@noble/ed25519';
-import { storeKey } from '../clients/oneclaw.js';
+import { generateKey } from '../clients/oneclaw.js';
 import * as log from '../logger.js';
 import type { Config } from '../config.js';
 import type { AgentContext, StepResult } from '../types.js';
@@ -41,19 +41,14 @@ function encodeDidKey(publicKey: Uint8Array): string {
   return `did:key:z${base58btc(prefixed)}`;
 }
 
-const toHex = (bytes: Uint8Array): string => Buffer.from(bytes).toString('hex');
-
 export async function createDid(_ctx: AgentContext, config: Config): Promise<StepResult> {
-  const privateKey = ed.utils.randomPrivateKey();
-  const publicKey = await ed.getPublicKeyAsync(privateKey);
+  const { keyId, publicKey } = await generateKey(config);
   const did = encodeDidKey(publicKey);
+  log.detail('keyId', keyId);
   log.detail('did', did);
 
-  const { keyId } = await storeKey(config, { privateKey: toHex(privateKey), label: 'agent-did-key' });
-  log.detail('keyId', keyId);
-
   return {
-    patch: { did, keyId, publicKey: toHex(publicKey) },
+    patch: { did, keyId, publicKey: Buffer.from(publicKey).toString('hex') },
     done: did,
   };
 }
