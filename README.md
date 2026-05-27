@@ -33,8 +33,9 @@ artifact (DID, repo URL, token address, swap tx hash).
                        Ed25519     did:key    agent.ts  token CA   swap tx
                        did:key     repo URL   code      on Base    on Base
 
-  Key custody:  the Ed25519 key is minted *inside* the 1Claw HSM (step 1); only
-                the public half leaves. Step 5 signs via the HSM by key handle.
+  Key custody:  the agent's Ed25519 identity key is auto-provisioned with the
+                agent; the DID is derived from its public key (step 1). The Base
+                signing key lives in the HSM; step 5 signs via the Intents API.
 ```
 
 ## Run it
@@ -65,19 +66,20 @@ them **in the 1Claw vault**, not in `.env`. At runtime the agent pulls them back
 name (`src/secrets.ts`). Shroud reuses the agent key, so no separate LLM key is needed.
 
 ```
-  pnpm bootstrap                         pnpm agent
-  ┌──────────────┐                       ┌──────────────┐
-  │  HUMAN key   │── create agent ──▶     │  AGENT key   │── reads ──▶ 1Claw vault
-  │  (you, once) │── attach policy        │ (.env, auto) │            (Bankr, Neynar…)
-  └──────────────┘── store secrets ─▶ vault└──────────────┘
+  pnpm bootstrap                              pnpm agent
+  ┌──────────────┐                            ┌──────────────┐
+  │  HUMAN key   │── create agent (ocv_) ──▶  │  AGENT key   │── reads ──▶ 1Claw vault
+  │  1ck_…       │── + base signing key       │ ocv_… (.env) │            (Bankr, Neynar…)
+  │  (you, once) │── vault + read policy ──▶   └──────────────┘
+  └──────────────┘── store secrets ───────▶ vault
 ```
 
 ### Environment
 
 | Var | Used by | Notes |
 |-----|---------|-------|
-| `ONECLAW_HUMAN_API_KEY` | `pnpm bootstrap` | the only key you set by hand |
-| `ONECLAW_AGENT_API_KEY` / `ONECLAW_AGENT_ID` | `pnpm agent` | written by bootstrap |
+| `ONECLAW_HUMAN_API_KEY` | `pnpm bootstrap` | the only key you set by hand (`1ck_…`) |
+| `ONECLAW_AGENT_API_KEY` / `ONECLAW_AGENT_ID` / `ONECLAW_VAULT_ID` | `pnpm agent` | written by bootstrap |
 | `BANKR_API_KEY`, `NEYNAR_*` | step 4 | stored in the 1Claw vault by bootstrap |
 | `SHROUD_API_URL` / `SHROUD_MODEL` | step 3 | Shroud auths with the agent key |
 | `GITLAWB_NODE_URL` (+ the `gl` CLI) | step 2 | identity-based, no token |
@@ -114,27 +116,25 @@ src/
 
 ## Status
 
-Each client now follows the real API surface documented by its service (see
-[1Claw docs](https://docs.1claw.xyz/), [Bankr docs](https://docs.bankr.bot/),
-[GitLawb node](https://github.com/Gitlawb/node)); when a credential is missing it
-falls back to a stub so `pnpm agent` always runs end to end. Search for
-`TODO(spec)` for the shapes still to be confirmed against live endpoints.
+Each client follows the real API surface of its service; when a credential is
+missing it falls back to a stub so `pnpm agent` always runs end to end.
 
-**Confirmed from docs and wired up:**
-- **Shroud** — OpenAI-compatible body, auth via `X-Shroud-Agent-Key`, provider
-  picked with `X-Shroud-Provider` (`claude-*` → `anthropic`).
-- **Bankr** — `POST /agent/prompt` → poll `GET /agent/job/{jobId}`; `X-API-Key` auth.
-- **GitLawb** — CLI-first (`gl repo create` + `gitlawb://` git remote via execa).
+**1Claw** — wired to the real API ([docs](https://docs.1claw.xyz/)):
+- Bootstrap (human `1ck_` key): `POST /v1/agents` (guardrails inline: `intents_api_enabled`,
+  `tx_allowed_chains`), `POST /v1/vaults` + `/policies`, `POST /v1/agents/{id}/signing-keys`.
+- Runtime (agent `ocv_` key, used as Bearer): DID from `GET /v1/agents/me` (`ssh_public_key`),
+  secrets via `GET /v1/vaults/{id}/secrets/{path}`, Intents via `POST /v1/agents/{id}/transactions`.
+- Shroud: `https://shroud.1claw.xyz/v1`, `X-Shroud-Agent-Key` + `X-Shroud-Provider`,
+  model `claude-sonnet-4-5-20250929`.
 
-**Open questions for the spec author:**
-- **1Claw key custody** — the spec's step 1 generates the key locally and POSTs the
-  private key to the vault. 1Claw's docs say keys are minted *inside* the HSM, so
-  this client now requests generation and receives only `{ keyId, publicKey }`. The
-  private key never leaves the HSM. Confirm the vault generate endpoint + response.
-- **1Claw Intents** — docs reference `POST /v1/agents/:id/transactions`; reconcile
-  the exact field names (`chain`/`recipient`/signing-key-path vs `chainId`/`to`/`keyId`).
+**Bankr** ([docs](https://docs.bankr.bot/)) — `POST /agent/prompt` → poll
+`GET /agent/job/{jobId}`, `X-API-Key`. **GitLawb** ([node](https://github.com/Gitlawb/node)) —
+CLI-first (`gl repo create` + `gitlawb://` git remote via execa).
+
+**Remaining `TODO(spec)`** (grep to find):
 - **GitLawb identity** — `gl identity new` mints its own did:key; confirm how to make
-  the repo owned by the vaulted DID from step 1 (`gl identity import`?).
-- **Bankr token launch** — currently parses the contract address from the agent's
-  reply; the structured Deploy API would be more robust.
-- **Step 5 swap calldata** — Uniswap V4 router address + token→USDC calldata are stubbed.
+  the repo owned by the agent's 1Claw DID (`gl identity import`?).
+- **Bankr token launch** — parses the contract address from the agent's reply; the
+  structured Deploy API would be more robust.
+- **Step 5 swap** — the V4 calldata is real, but the token's actual V4 PoolKey
+  (fee/tickSpacing/hooks) and Permit2 approvals still need wiring for a live swap.

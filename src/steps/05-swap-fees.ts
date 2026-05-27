@@ -32,8 +32,7 @@ export async function swapFees(ctx: AgentContext, config: Config): Promise<StepR
   log.detail('calldata', `${swap.data.slice(0, 18)}… (${(swap.data.length - 2) / 2} bytes)`);
 
   const { txHash } = await submitIntent(config, {
-    keyId: ctx.keyId!,
-    chainId: BASE_CHAIN_ID,
+    chain: 'base',
     to: swap.to,
     data: swap.data,
     value: swap.value,

@@ -59,8 +59,8 @@ export async function generateCode(config: Config, prompt: string): Promise<stri
   }
 
   const provider = config.SHROUD_PROVIDER || providerFor(config.SHROUD_MODEL);
-  // TODO(spec): confirm whether the base URL keeps the /v1 suffix — docs give the
-  // proxy host as https://shroud.1claw.xyz; the openai SDK posts to {baseURL}/chat/completions.
+  // Shroud serves OpenAI-compatible chat at https://shroud.1claw.xyz/v1/chat/completions,
+  // so the openai SDK baseURL keeps the /v1 suffix.
   const client = new OpenAI({
     baseURL: config.SHROUD_API_URL,
     apiKey: 'shroud', // unused: Shroud authenticates via X-Shroud-Agent-Key

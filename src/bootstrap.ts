@@ -1,23 +1,16 @@
-// `pnpm bootstrap` — one-time setup. Using only the 1Claw HUMAN API key, this
-// provisions an agent (which gets its OWN scoped API key), attaches a policy,
-// and stores the third-party secrets (Bankr, Neynar, …) in the agent's vault.
-// It writes the agent's key + id to .env so `pnpm agent` runs with just that key
-// and pulls every other secret from the vault. Run it once, then `pnpm agent`.
+// `pnpm bootstrap` — one-time setup. Using only the 1Claw HUMAN key (1ck_…), this
+// provisions an agent (which gets its OWN ocv_ key), a secrets vault with a read
+// policy, and a Base signing key, then stores third-party secrets (Bankr, Neynar)
+// in the vault. It writes the agent's key + id + vault id to .env so `pnpm agent`
+// runs with just the agent key and pulls every other secret from the vault.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
 import { loadConfig } from './config.js';
-import { createAgent, attachPolicy, putSecret } from './clients/oneclaw-admin.js';
+import { createAgent, createVault, grantAgentRead, provisionSigningKey, putSecret } from './clients/oneclaw-admin.js';
 import { VAULT_SECRETS } from './secrets.js';
-
-// Base-only guardrails for the agent's signing key — illustrative defaults.
-const DEFAULT_POLICY = {
-  chains: [8453],
-  maxTransactionValueWei: '0', // contract calls only, no native value transfers
-  description: '1Claw reference agent — Base only',
-};
 
 function upsertEnv(file: string, updates: Record<string, string>): void {
   let content = existsSync(file)
@@ -39,20 +32,23 @@ async function main(): Promise<void> {
   console.log(chalk.cyan.bold('\n1Claw bootstrap — provisioning your agent\n'));
   if (!config.ONECLAW_HUMAN_API_KEY) {
     console.log(chalk.yellow('⚠ no ONECLAW_HUMAN_API_KEY set — simulating provisioning locally.'));
-    console.log(chalk.dim('  set it in .env to provision a real agent + vault.\n'));
+    console.log(chalk.dim('  set your 1ck_… key in .env to provision a real agent + vault.\n'));
   }
 
-  // 1. Create the agent (it receives its own scoped API key).
+  // 1. Create the agent (Base intents enabled) — it receives its own ocv_ key.
   const { agentId, agentApiKey } = await createAgent(config, 'reference-agent');
-  console.log(chalk.green('✓ agent created'));
-  console.log(`  ${chalk.dim('agentId:')} ${agentId}`);
+  console.log(chalk.green('✓ agent created') + chalk.dim(`  ${agentId}`));
 
-  // 2. Attach guardrails.
-  await attachPolicy(config, agentId, DEFAULT_POLICY);
-  console.log(chalk.green('✓ policy attached') + chalk.dim('  (Base only, no native value)'));
+  // 2. Provision its Base signing key (HSM-held).
+  const address = await provisionSigningKey(config, agentId, 'base');
+  console.log(chalk.green('✓ base signing key') + chalk.dim(`  ${address}`));
 
-  // 3. Prompt for third-party secrets and store them in the agent's vault.
-  //    Skipped when stdin isn't a TTY (CI / piped input) so bootstrap never hangs.
+  // 3. Create a vault for third-party secrets and let the agent read it.
+  const vaultId = await createVault(config, 'reference-agent-secrets');
+  await grantAgentRead(config, vaultId, agentId);
+  console.log(chalk.green('✓ vault + read policy') + chalk.dim(`  ${vaultId}`));
+
+  // 4. Prompt for third-party secrets and store them in the vault (TTY only).
   let stored = 0;
   if (process.stdin.isTTY) {
     console.log(chalk.cyan('\nstoring secrets in the 1Claw vault (press enter to skip any):'));
@@ -61,7 +57,7 @@ async function main(): Promise<void> {
       for (const secret of VAULT_SECRETS) {
         const value = (await rl.question(chalk.cyan(`  ${secret.prompt}: `))).trim();
         if (!value) continue;
-        await putSecret(config, agentId, secret.vaultName, value);
+        await putSecret(config, vaultId, secret.vaultName, value);
         console.log(chalk.green(`    ✓ stored ${secret.vaultName}`));
         stored++;
       }
@@ -73,12 +69,16 @@ async function main(): Promise<void> {
     console.log(chalk.dim('  re-run `pnpm bootstrap` in a terminal to store Bankr/Neynar secrets.'));
   }
 
-  // 4. Persist the agent's own credentials — the only secrets the runtime needs.
+  // 5. Persist the agent's own credentials — the only secrets the runtime needs.
   const envPath = resolve(process.cwd(), '.env');
-  upsertEnv(envPath, { ONECLAW_AGENT_ID: agentId, ONECLAW_AGENT_API_KEY: agentApiKey });
+  upsertEnv(envPath, {
+    ONECLAW_AGENT_ID: agentId,
+    ONECLAW_AGENT_API_KEY: agentApiKey,
+    ONECLAW_VAULT_ID: vaultId,
+  });
 
   console.log(chalk.green.bold('\n✓ bootstrap complete'));
-  console.log(`  ${chalk.dim('agent key + id written to')} ${envPath}`);
+  console.log(`  ${chalk.dim('agent key + id + vault written to')} ${envPath}`);
   console.log(`  ${chalk.dim('secrets stored in vault:')} ${stored}`);
   console.log(chalk.cyan('\nnext: pnpm agent\n'));
 }

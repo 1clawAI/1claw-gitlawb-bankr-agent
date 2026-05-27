@@ -21,7 +21,7 @@ const TOTAL = 5;
 type StepFn = (ctx: AgentContext, config: Config) => Promise<StepResult>;
 
 const STEPS: Array<{ n: number; label: string; fn: StepFn }> = [
-  { n: 1, label: 'creating DID + storing key in 1Claw vault...', fn: createDid },
+  { n: 1, label: 'deriving DID from the 1Claw agent identity...', fn: createDid },
   { n: 2, label: 'pushing repo to GitLawb...', fn: pushRepo },
   { n: 3, label: 'generating repo contents via Shroud TEE...', fn: llmCall },
   { n: 4, label: 'launching Bankr token...', fn: launchTokenStep },

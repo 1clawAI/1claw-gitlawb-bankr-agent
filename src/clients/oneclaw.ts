@@ -1,76 +1,73 @@
-// 1Claw runtime client — used by `pnpm agent` with the AGENT API key.
-// Mints the agent's Ed25519 DID key in the HSM (step 1), reads third-party
-// secrets from the vault (src/secrets.ts), and submits signing Intents (step 5).
-// The private key is generated inside the HSM and never leaves it.
+// 1Claw runtime client — used by `pnpm agent` with the AGENT key (ocv_…), which
+// is a valid Bearer token. Reads the agent's Ed25519 identity key (for the DID,
+// step 1), reads third-party secrets from the vault (src/secrets.ts), and submits
+// signing Intents (step 5). Signing keys live in the HSM; nothing private leaves.
 
+import { randomUUID } from 'node:crypto';
 import * as ed from '@noble/ed25519';
 import { withTimeout, DEFAULT_TIMEOUT_MS } from '../util/timeout.js';
 import * as log from '../logger.js';
 import { isProvisioned, type Config } from '../config.js';
 
-export interface GeneratedKey {
-  keyId: string;
-  publicKey: Uint8Array; // 32-byte Ed25519 public key
+export interface AgentIdentity {
+  agentId: string;
+  publicKey: Uint8Array; // 32-byte Ed25519 identity public key
 }
 
 export interface IntentRequest {
-  keyId: string;
-  chainId: number;
+  chain: string; // e.g. "base"
   to: string;
   data: string;
-  value: string;
+  value: string; // wei
 }
 
-const agentHeaders = (config: Config) => ({
+const bearer = (config: Config) => ({
   'content-type': 'application/json',
   authorization: `Bearer ${config.ONECLAW_AGENT_API_KEY}`,
 });
 
-// Mint an Ed25519 key in the vault. The stub generates locally so the scaffold
-// still produces a real did:key offline; the private key is discarded immediately.
-export async function generateKey(config: Config): Promise<GeneratedKey> {
+// The raw Ed25519 key is the trailing 32 bytes of the SSH wire-format blob
+// ("ssh-ed25519 <base64> [comment]").
+function rawEd25519FromSsh(sshKey: string): Uint8Array {
+  const blob = Buffer.from(sshKey.trim().split(/\s+/)[1] ?? '', 'base64');
+  return Uint8Array.from(blob.subarray(blob.length - 32));
+}
+
+// Read the agent's auto-provisioned identity key from GET /v1/agents/me.
+// The agent already has an Ed25519 keypair, so the DID is derived, not minted.
+export async function getAgentIdentity(config: Config): Promise<AgentIdentity> {
   if (!isProvisioned(config.ONECLAW_AGENT_API_KEY)) {
-    log.stub('1claw vault — no agent key, generating key locally (HSM does this in prod)');
-    const privateKey = ed.utils.randomPrivateKey();
-    const publicKey = await ed.getPublicKeyAsync(privateKey);
-    return { keyId: `key_stub_${Date.now().toString(36)}`, publicKey };
+    log.stub('1claw — no agent key, deriving DID from a local key (the HSM holds it in prod)');
+    const publicKey = await ed.getPublicKeyAsync(ed.utils.randomPrivateKey());
+    return { agentId: `agt_stub_${Date.now().toString(36)}`, publicKey };
   }
 
-  // TODO(spec): confirm endpoint shape — POST /v1/vault/keys { algorithm: "ed25519" }
-  // -> { keyId, publicKey }. The vault generates the key; we never send a private key.
-  return withTimeout('1claw vault generate', DEFAULT_TIMEOUT_MS, async (signal) => {
-    const res = await fetch(`${config.ONECLAW_API_URL}/v1/vault/keys`, {
-      method: 'POST',
-      headers: agentHeaders(config),
-      body: JSON.stringify({ algorithm: 'ed25519', label: 'agent-did-key' }),
-      signal,
-    });
-    if (!res.ok) throw new Error(`[step 1] 1claw vault generate failed: ${res.status} ${await res.text()}`);
-    const json = (await res.json()) as { keyId: string; publicKey: string };
-    // TODO(spec): confirm publicKey encoding (assuming hex); convert to bytes.
-    return { keyId: json.keyId, publicKey: Uint8Array.from(Buffer.from(json.publicKey, 'hex')) };
+  return withTimeout('1claw agents/me', DEFAULT_TIMEOUT_MS, async (signal) => {
+    const res = await fetch(`${config.ONECLAW_API_URL}/v1/agents/me`, { headers: bearer(config), signal });
+    if (!res.ok) throw new Error(`[step 1] 1claw agents/me failed: ${res.status} ${await res.text()}`);
+    const json = (await res.json()) as { id: string; ssh_public_key: string };
+    return { agentId: json.id, publicKey: rawEd25519FromSsh(json.ssh_public_key) };
   });
 }
 
 // Read a secret the bootstrap stored in the vault. Returns undefined when the
 // agent isn't provisioned or the secret is absent (caller falls back to env).
-export async function getSecret(config: Config, name: string): Promise<string | undefined> {
-  if (!isProvisioned(config.ONECLAW_AGENT_API_KEY)) return undefined;
+export async function getSecret(config: Config, path: string): Promise<string | undefined> {
+  if (!isProvisioned(config.ONECLAW_AGENT_API_KEY) || !config.ONECLAW_VAULT_ID) return undefined;
 
-  // TODO(spec): confirm endpoint shape — GET /v1/vault/secrets/{name} -> { value }.
-  return withTimeout(`1claw vault read ${name}`, DEFAULT_TIMEOUT_MS, async (signal) => {
-    const res = await fetch(`${config.ONECLAW_API_URL}/v1/vault/secrets/${encodeURIComponent(name)}`, {
-      headers: agentHeaders(config),
-      signal,
-    });
+  return withTimeout(`1claw vault read ${path}`, DEFAULT_TIMEOUT_MS, async (signal) => {
+    const res = await fetch(
+      `${config.ONECLAW_API_URL}/v1/vaults/${config.ONECLAW_VAULT_ID}/secrets/${encodeURIComponent(path)}`,
+      { headers: bearer(config), signal },
+    );
     if (res.status === 404) return undefined;
-    if (!res.ok) throw new Error(`1claw vault read ${name} failed: ${res.status} ${await res.text()}`);
-    const json = (await res.json()) as { value?: string };
-    return json.value;
+    if (!res.ok) throw new Error(`1claw vault read ${path} failed: ${res.status} ${await res.text()}`);
+    return ((await res.json()) as { value?: string }).value;
   });
 }
 
-// Submit a signing Intent. 1Claw's HSM signs with the vaulted key and broadcasts.
+// Submit a transaction Intent. The HSM signs with the agent's Base signing key
+// and broadcasts; we poll until a tx hash appears.
 export async function submitIntent(config: Config, body: IntentRequest): Promise<{ txHash: string }> {
   if (!isProvisioned(config.ONECLAW_AGENT_API_KEY)) {
     log.stub('1claw intents — no agent key, returning mock txHash');
@@ -79,27 +76,26 @@ export async function submitIntent(config: Config, body: IntentRequest): Promise
   if (!config.ONECLAW_AGENT_ID) {
     throw new Error('[step 5] 1claw intents: ONECLAW_AGENT_ID is required (intents are agent-scoped)');
   }
+  const base = `${config.ONECLAW_API_URL}/v1/agents/${config.ONECLAW_AGENT_ID}/transactions`;
 
-  // TODO(spec): confirm endpoint + field names. Docs reference
-  // POST /v1/agents/:id/transactions with { chain, recipient, value, signing key }.
-  // Reconciling to { chainId, to, data, value, keyId } here — verify the exact shape.
   return withTimeout('1claw intent submit', DEFAULT_TIMEOUT_MS, async (signal) => {
-    const res = await fetch(`${config.ONECLAW_API_URL}/v1/agents/${config.ONECLAW_AGENT_ID}/transactions`, {
+    const res = await fetch(base, {
       method: 'POST',
-      headers: agentHeaders(config),
-      body: JSON.stringify({
-        keyId: body.keyId,
-        chainId: body.chainId,
-        to: body.to,
-        data: body.data,
-        value: body.value,
-      }),
+      headers: { ...bearer(config), 'Idempotency-Key': randomUUID() },
+      body: JSON.stringify({ chain: body.chain, to: body.to, value: body.value, data: body.data }),
       signal,
     });
     if (!res.ok) throw new Error(`[step 5] 1claw intent submit failed: ${res.status} ${await res.text()}`);
-    const json = (await res.json()) as { txHash?: string; hash?: string };
-    const txHash = json.txHash ?? json.hash;
-    if (!txHash) throw new Error('[step 5] 1claw intent submit: no txHash in response');
-    return { txHash };
+    let tx = (await res.json()) as { id: string; tx_hash?: string; status: string };
+
+    // Broadcast is async; poll the transaction until it has a hash.
+    for (let i = 0; !tx.tx_hash && i < 10 && tx.status !== 'failed'; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const poll = await fetch(`${base}/${tx.id}`, { headers: bearer(config), signal });
+      if (!poll.ok) throw new Error(`[step 5] 1claw tx poll failed: ${poll.status} ${await poll.text()}`);
+      tx = (await poll.json()) as { id: string; tx_hash?: string; status: string };
+    }
+    if (!tx.tx_hash) throw new Error(`[step 5] 1claw intent: no tx_hash (status: ${tx.status})`);
+    return { txHash: tx.tx_hash };
   });
 }

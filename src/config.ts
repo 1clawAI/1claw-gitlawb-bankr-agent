@@ -12,13 +12,14 @@ import chalk from 'chalk';
 const schema = z.object({
   // 1Claw
   ONECLAW_API_URL: z.string().url().default('https://api.1claw.xyz'),
-  ONECLAW_HUMAN_API_KEY: z.string().default(''), // bootstrap only
-  ONECLAW_AGENT_API_KEY: z.string().default(''), // runtime; written by bootstrap
+  ONECLAW_HUMAN_API_KEY: z.string().default(''), // 1ck_… — bootstrap only
+  ONECLAW_AGENT_API_KEY: z.string().default(''), // ocv_… — runtime; written by bootstrap
   ONECLAW_AGENT_ID: z.string().default(''), //      runtime; written by bootstrap
+  ONECLAW_VAULT_ID: z.string().default(''), //      vault holding third-party secrets
   // Shroud — OpenAI-compatible TEE LLM proxy (auths with the agent key by default)
   SHROUD_API_URL: z.string().url().default('https://shroud.1claw.xyz/v1'),
   SHROUD_API_KEY: z.string().default(''),
-  SHROUD_MODEL: z.string().default('claude-sonnet-4-5'),
+  SHROUD_MODEL: z.string().default('claude-sonnet-4-5-20250929'),
   SHROUD_PROVIDER: z.string().default(''),
   // GitLawb — decentralized git node (gl CLI handles identity/auth)
   GITLAWB_NODE_URL: z.string().url().default('http://localhost:7545'),
