@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Reference agent demonstrating the 1Claw × GitLawb × Bankr × Shroud agentic dev stack end to end.",
   "scripts": {
+    "bootstrap": "tsx src/bootstrap.ts",
     "agent": "tsx src/agent.ts",
     "typecheck": "tsc --noEmit"
   },
