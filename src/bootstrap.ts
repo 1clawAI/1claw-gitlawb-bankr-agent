@@ -10,6 +10,7 @@ import { loadConfig, type Config } from './config.js';
 import { createAgent, createVault, grantAgentRead, provisionSigningKey, putSecret, SIGNING_KEY_CHAIN } from './clients/oneclaw-admin.js';
 import { VAULT_SECRETS } from './secrets.js';
 import { promptSecret } from './util/prompt-secret.js';
+import { printQrSideBySide, printSingleQr } from './util/qr-display.js';
 
 function upsertEnv(file: string, updates: Record<string, string>): void {
   let content = existsSync(file)
@@ -155,7 +156,35 @@ async function main(): Promise<void> {
   console.log(`  ${chalk.dim('agent key + id + vault written to')} ${envPath}`);
   console.log(`  ${chalk.dim('secrets stored in vault:')} ${storedNames.join(', ')}`);
   console.log(chalk.dim('  vault secrets cleared from .env — `pnpm agent` pulls them at runtime'));
-  console.log(chalk.cyan('\nnext: pnpm agent\n'));
+
+  // 6. Show funding QR codes for the agent EVM wallet and Bankr wallet.
+  console.log(chalk.cyan('\n── fund your wallets (optional) ──'));
+  console.log(chalk.dim('  scan to send ETH/tokens on Base to either wallet\n'));
+
+  let bankrEvmAddress: string | undefined;
+  try {
+    const bankrRes = await fetch(`${config.BANKR_API_URL || 'https://api.bankr.bot'}/wallet/me`, {
+      headers: { 'X-API-Key': bankrKey },
+    });
+    if (bankrRes.ok) {
+      const bankrData = (await bankrRes.json()) as {
+        wallets?: Array<{ chain: string; address: string }>;
+      };
+      bankrEvmAddress = bankrData.wallets?.find((w) => w.chain === 'evm')?.address;
+    }
+  } catch { /* non-fatal */ }
+
+  if (bankrEvmAddress) {
+    await printQrSideBySide(
+      { label: '1Claw Agent (HSM)', address, network: 'Base' },
+      { label: 'Bankr Wallet', address: bankrEvmAddress, network: 'Base' },
+    );
+  } else {
+    await printSingleQr({ label: '1Claw Agent (HSM)', address, network: 'Base' });
+    console.log(chalk.dim('  (could not fetch Bankr wallet — fund it separately at bankr.bot)\n'));
+  }
+
+  console.log(chalk.cyan('next: pnpm agent\n'));
 }
 
 main().catch((err) => {
