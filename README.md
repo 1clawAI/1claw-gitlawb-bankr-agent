@@ -182,24 +182,47 @@ src/
 ### Intents (step 5)
 
 - `POST /v1/agents/{id}/transactions` on Base; polls until `tx_hash`
-- V4 swap calldata is built in `util/v4-swap.ts` — **PoolKey / Permit2 wiring still TODO** for live swaps against a freshly launched token
+- V4 swap calldata is built in `util/v4-swap.ts` and submitted via the agent's HSM signing key
+- **PoolKey** (`fee`, `tickSpacing`, `hooks`) is still hardcoded — see [What's next](#whats-next)
 
 ## Implementation & test status
 
-This table reflects what is **implemented in code** vs what has been **run successfully end-to-end** against live services. There is no automated CI for the full flow.
+End-to-end tested on live 1Claw, GitLawb (`node.gitlawb.com`), Shroud, Bankr, and Base (May 2026). No automated CI for the full flow.
 
 | Step | Code | E2E tested |
 |------|------|------------|
 | **Bootstrap** — agent, vault, signing key, profile → `.env` | ✅ | ✅ |
 | **1** — DID from 1Claw (`agents/me` → `did:key`) | ✅ | ✅ |
-| **2** — GitLawb push (`agent-{uuid-prefix}` on public node) | ✅ | ✅ (empty-repo `main` branch handling) |
+| **2** — GitLawb push (`agent-{uuid-prefix}` on public node) | ✅ | ✅ |
 | **3** — Shroud LLM + commit `agent.ts` | ✅ | ✅ |
-| **4** — Bankr `POST /token-launches/deploy` (ticker, name, optional `image`) | ✅ | ❌ — blocked on **Bankr Club**, **24h wallet**, and write + Token Launch API key; not completed in maintainer runs |
-| **5** — 1Claw Intents swap on Base | 🔧 partial | ❌ — intent submit is wired, but V4 **PoolKey** uses placeholders and **Permit2 → UniversalRouter** approval is not implemented for the launched token |
+| **4** — Bankr `POST /token-launches/deploy` (ticker, name, optional `image`) | ✅ | ✅ |
+| **5** — 1Claw Intents swap on Base | ✅ | ✅ (intent + on-chain tx; pool params still placeholder) |
 
-A full green `pnpm agent` run (all five steps without manual intervention) has **not** been recorded in this repository yet.
+Example successful run (`pnpm agent`):
+
+```
+DID:    did:key:z6Mkv7TsyDk2PuZSEaH1F1s3cPT6KiXUENoSvyBVDeyw6Lwe
+repo:   gitlawb://did:key:z6MkhNrj…/agent-e5eb73ec
+token:  0xdED5B8B59089220081A14551E7F225757919CbA3
+swap:   https://basescan.org/tx/0x12f72476929077d7952e91f6a29e0c2e7c05adb872291b0ce47e65d1f0b4890d
+```
+
+Requires **Bankr Club**, a **24h+** Bankr wallet, and a read-write API key with **Token Launch** enabled for step 4.
 
 No stub fallbacks — missing credentials or CLI fail fast with actionable errors.
+
+## What's next
+
+Improvements beyond the reference happy path:
+
+| Area | Status | Notes |
+|------|--------|-------|
+| **V4 PoolKey discovery** | TODO | Step 5 uses placeholder `fee` / `tickSpacing` / `hooks`; read the real pool from the Bankr deploy response or on-chain state |
+| **Permit2 approval** | TODO | Pre-approve launched token → Permit2 → UniversalRouter if swaps revert or move zero tokens |
+| **Swap amount / slippage** | Demo | Fixed `1000` tokens in, `amountOutMinimum: 0` — add slippage guards for production |
+| **GitLawb ↔ 1Claw identity** | Blocked upstream | Repos use local `gl` DID, not the 1Claw HSM `did:key` from step 1 |
+| **CI / regression tests** | None | Full flow needs live keys; consider mocked integration tests per client |
+| **Production hardening** | Reference only | Rate limits, retries, idempotent re-runs, secret rotation |
 
 ## Scripts
 
