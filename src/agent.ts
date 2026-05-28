@@ -38,27 +38,46 @@ const STEPS: Array<{ n: number; label: string; fn: StepFn }> = [
   { n: 5, label: 'signing fee swap via 1Claw Intents...', fn: swapFees },
 ];
 
+function seedExistingToken(ctx: AgentContext, config: Config): void {
+  const token = config.BANKR_EXISTING_TOKEN_ADDRESS.trim();
+  if (!token) return;
+  ctx.tokenAddress = token;
+  ctx.poolId = config.BANKR_EXISTING_POOL_ID.trim() || ctx.poolId;
+  const deployTx = config.BANKR_EXISTING_DEPLOY_TX_HASH.trim();
+  if (deployTx) ctx.deployTxHash = deployTx;
+  if (config.BANKR_TOKEN_SYMBOL) ctx.tokenSymbol = config.BANKR_TOKEN_SYMBOL.toUpperCase();
+  if (config.ONECLAW_AGENT_ID) ctx.keyId = config.ONECLAW_AGENT_ID;
+}
+
 async function main(): Promise<void> {
   const baseConfig = loadConfig();
   requireAgentConfig(baseConfig);
+  if (baseConfig.AGENT_START_STEP > baseConfig.AGENT_END_STEP) {
+    throw new Error('AGENT_START_STEP must be <= AGENT_END_STEP');
+  }
   // Load the agent key, then pull third-party secrets from the 1Claw vault.
   const config = await resolveSecrets(baseConfig);
   const ctx: AgentContext = {};
+  seedExistingToken(ctx, config);
   const startedAt = new Date().toISOString();
   let ok = true;
   let failedStep: number | undefined;
 
-  for (const step of STEPS) {
+  const steps = STEPS.filter(
+    (s) => s.n >= config.AGENT_START_STEP && s.n <= config.AGENT_END_STEP,
+  );
+
+  for (const step of steps) {
     const start = Date.now();
-    log.stepStart(step.n, TOTAL, step.label);
+    log.stepStart(step.n, steps.length, step.label);
     try {
       const result = await step.fn(ctx, config);
       Object.assign(ctx, result.patch);
-      log.stepDone(step.n, TOTAL, ((Date.now() - start) / 1000).toFixed(1), result.done);
+      log.stepDone(step.n, steps.length, ((Date.now() - start) / 1000).toFixed(1), result.done);
     } catch (err) {
       ok = false;
       failedStep = step.n;
-      log.stepFail(step.n, TOTAL, err instanceof Error ? err.message : String(err));
+      log.stepFail(step.n, steps.length, err instanceof Error ? err.message : String(err));
       break;
     }
   }

@@ -21,6 +21,13 @@ const schema = z.object({
   BANKR_TOKEN_SYMBOL: z.string().default(''), //    ticker; written by bootstrap (e.g. AGENT)
   BANKR_TOKEN_NAME: z.string().default(''), //      full name; empty → Agent <id> at deploy
   BANKR_TOKEN_IMAGE: z.string().default(''), //      logo URL (https); optional, sent as `image` to Bankr
+  // Reuse an existing Bankr launch — skips step 4 deploy when token address is set
+  BANKR_EXISTING_TOKEN_ADDRESS: z.string().default(''),
+  BANKR_EXISTING_POOL_ID: z.string().default(''),
+  BANKR_EXISTING_DEPLOY_TX_HASH: z.string().default(''),
+  // Run a subset of steps (inclusive), e.g. AGENT_START_STEP=5 AGENT_END_STEP=5
+  AGENT_START_STEP: z.coerce.number().int().min(1).max(5).default(1),
+  AGENT_END_STEP: z.coerce.number().int().min(1).max(5).default(5),
   // Shroud — OpenAI-compatible TEE LLM proxy (auths with the agent key by default)
   SHROUD_API_URL: z.string().url().default('https://shroud.1claw.xyz/v1'),
   SHROUD_API_KEY: z.string().default(''),

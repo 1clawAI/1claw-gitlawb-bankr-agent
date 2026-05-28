@@ -9,6 +9,30 @@ import type { AgentContext, StepResult } from '../types.js';
 
 export async function launchTokenStep(ctx: AgentContext, config: Config): Promise<StepResult> {
   const symbol = (config.BANKR_TOKEN_SYMBOL || 'AGENT').toUpperCase();
+  const existing = config.BANKR_EXISTING_TOKEN_ADDRESS.trim();
+  if (existing) {
+    const poolId = config.BANKR_EXISTING_POOL_ID.trim();
+    if (!poolId) {
+      throw new Error(
+        '[step 4] BANKR_EXISTING_POOL_ID is required when BANKR_EXISTING_TOKEN_ADDRESS is set',
+      );
+    }
+    log.detail('mode', 'reuse existing token (skip deploy)');
+    log.detail('token', existing);
+    log.detail('poolId', poolId);
+    const deployTxHash = config.BANKR_EXISTING_DEPLOY_TX_HASH.trim() || undefined;
+    if (deployTxHash) log.detail('deployTx', deployTxHash);
+    return {
+      patch: {
+        tokenSymbol: symbol,
+        tokenAddress: existing,
+        poolId,
+        deployTxHash,
+      },
+      done: existing,
+    };
+  }
+
   const name = config.BANKR_TOKEN_NAME.trim() || `Agent ${ctx.keyId!.split('-')[0]}`;
   const imageUrl = config.BANKR_TOKEN_IMAGE.trim();
   log.detail('name', name);
