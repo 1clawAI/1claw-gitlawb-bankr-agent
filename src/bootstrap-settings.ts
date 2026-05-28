@@ -1,5 +1,8 @@
 // Bootstrap profile fields — agent/vault names and Bankr token metadata.
 
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import type { Config } from './config.js';
 import { promptLine } from './util/prompt-line.js';
@@ -36,17 +39,51 @@ function defaultVaultName(agentName: string): string {
   return `${agentName}-secrets`;
 }
 
+function resolveLocalImageToUrl(value: string): string | undefined {
+  const rel = value.startsWith('./') || value.startsWith('../') || !value.includes('://');
+  if (!rel) return undefined;
+  const abs = resolve(process.cwd(), value);
+  if (!existsSync(abs)) {
+    throw new Error(`token image file not found: ${abs}`);
+  }
+  let remote = '';
+  try {
+    remote = execSync('git remote get-url origin', { encoding: 'utf8' }).trim();
+  } catch { /* not a git repo */ }
+
+  const ghMatch = remote.match(/github\.com[/:](.+?)(?:\.git)?$/);
+  if (!ghMatch) {
+    throw new Error(
+      `token image is a local file (${value}) but cannot build a public URL — ` +
+      `push to GitHub first or use an https:// hosted URL`,
+    );
+  }
+
+  let branch = 'main';
+  try {
+    branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
+  } catch { /* fallback to main */ }
+
+  const repoPath = ghMatch[1];
+  const filePath = value.replace(/^\.\//, '');
+  return `https://raw.githubusercontent.com/${repoPath}/${branch}/${filePath}`;
+}
+
 function validateTokenImageUrl(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return '';
+
+  const localUrl = resolveLocalImageToUrl(trimmed);
+  if (localUrl) return localUrl;
+
   let url: URL;
   try {
     url = new URL(trimmed);
   } catch {
-    throw new Error('token image must be a valid URL');
+    throw new Error('token image must be a valid URL or a local file path (e.g. ./assets/logo.png)');
   }
   if (url.protocol !== 'https:') {
-    throw new Error('token image URL must use https (direct link to PNG/JPG/WebP/GIF)');
+    throw new Error('token image URL must use https');
   }
   return trimmed;
 }
@@ -57,7 +94,10 @@ async function resolveOptionalImageUrl(envValue: string, interactive: boolean): 
   if (!interactive) return '';
 
   for (;;) {
-    const raw = await promptLine(chalk.cyan('  Bankr token image URL (optional — https, Enter to skip)'), '');
+    const raw = await promptLine(
+      chalk.cyan('  Token image (square PNG/JPG, https URL or local path e.g. ./assets/logo.png)'),
+      '',
+    );
     if (!raw.trim()) return '';
     try {
       return validateTokenImageUrl(raw);

@@ -53,7 +53,7 @@ You'll be prompted for:
 | **Vault name** | Labels the secret store (default `{agent}-secrets`) |
 | **Token ticker** | On-chain symbol, e.g. `AGENT` |
 | **Token name** | Display name (optional — defaults to `Agent <id>`) |
-| **Token image** | HTTPS logo URL (optional) |
+| **Token image** | Square logo (PNG/JPG/WebP/GIF). HTTPS URL or local path like `./assets/logo.png` |
 | **1Claw key** | Your `1ck_…` human key (masked) |
 | **Bankr key** | Your `bk_…` key (masked, stored in vault) |
 
@@ -111,6 +111,28 @@ Results are saved to `run-summary.json`.
 
 ---
 
+## Token image
+
+Your token logo should be **square** (1:1 aspect ratio). Recommended size: **512×512** or **1024×1024** pixels. PNG with transparent background works best across wallets and DEX UIs.
+
+**Option A — hosted URL:**
+
+```env
+BANKR_TOKEN_IMAGE=https://example.com/my-logo.png
+```
+
+**Option B — local file in the repo:**
+
+Drop your image in the `assets/` folder and reference it by path:
+
+```env
+BANKR_TOKEN_IMAGE=./assets/token-logo.png
+```
+
+Bootstrap automatically converts this to a `raw.githubusercontent.com` URL based on your git remote and branch. Make sure the file is committed and pushed before running `pnpm agent`.
+
+---
+
 ## Reuse an existing token (skip redeploy)
 
 Already launched? Set these in `.env` to skip step 4's deploy:
@@ -141,7 +163,7 @@ AGENT_SWAP_DRY_RUN=1 pnpm agent
 |----------|------|-------|
 | `ONECLAW_HUMAN_API_KEY` | bootstrap | `1ck_…` — never needed at runtime |
 | `ONECLAW_AGENT_NAME` / `ONECLAW_VAULT_NAME` | bootstrap | resource labels |
-| `BANKR_TOKEN_SYMBOL` / `BANKR_TOKEN_NAME` / `BANKR_TOKEN_IMAGE` | bootstrap → step 4 | token metadata |
+| `BANKR_TOKEN_SYMBOL` / `BANKR_TOKEN_NAME` / `BANKR_TOKEN_IMAGE` | bootstrap → step 4 | token metadata; image can be URL or local path |
 | `ONECLAW_AGENT_ID` / `ONECLAW_AGENT_API_KEY` / `ONECLAW_VAULT_ID` | runtime | written by bootstrap |
 | `GITLAWB_NODE_URL` | step 2 | default `https://node.gitlawb.com` |
 | `SHROUD_API_URL` / `SHROUD_MODEL` | step 3 | default `gpt-4o-mini` |
@@ -231,8 +253,10 @@ src/
 
 - `POST /token-launches/deploy` — returns token address + poolId
 - Supports name, ticker, image, description, fee routing
+- Image must be **square** (512×512 or 1024×1024 recommended)
 - Requires Bankr Club + 24h wallet age
 - Use direct HTTPS image URLs (IPFS uploads can fail)
+- Local file paths (e.g. `./assets/logo.png`) are auto-resolved to `raw.githubusercontent.com`
 
 ### Uniswap V4 (step 5)
 
