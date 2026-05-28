@@ -20,14 +20,13 @@ function requireHumanKey(config: Config): void {
 
 export async function createAgent(config: Config, name: string): Promise<ProvisionedAgent> {
   requireHumanKey(config);
+  const client = await getAdminClient(config);
   const created = throwOnError<AgentCreatedResponse>(
     '1claw create agent',
-    await getAdminClient(config).agents.create({
+    await client.agents.create({
       name,
       intents_api_enabled: true,
       shroud_enabled: true,
-      message_signing_enabled: true,
-      eip712_default_policy: 'allow',
       tx_allowed_chains: ['base'],
       tx_max_value_eth: '0',
     }),
@@ -37,15 +36,17 @@ export async function createAgent(config: Config, name: string): Promise<Provisi
 
 export async function createVault(config: Config, name: string): Promise<string> {
   requireHumanKey(config);
-  const vault = throwOnError<VaultResponse>('1claw create vault', await getAdminClient(config).vault.create({ name }));
+  const client = await getAdminClient(config);
+  const vault = throwOnError<VaultResponse>('1claw create vault', await client.vault.create({ name }));
   return vault.id;
 }
 
 export async function grantAgentRead(config: Config, vaultId: string, agentId: string): Promise<void> {
   requireHumanKey(config);
+  const client = await getAdminClient(config);
   throwOnError(
     '1claw grant policy',
-    await getAdminClient(config).access.grantAgent(vaultId, agentId, ['read'], {
+    await client.access.grantAgent(vaultId, agentId, ['read'], {
       secretPathPattern: '*',
     }),
   );
@@ -53,9 +54,10 @@ export async function grantAgentRead(config: Config, vaultId: string, agentId: s
 
 export async function provisionSigningKey(config: Config, agentId: string, chain: string): Promise<string> {
   requireHumanKey(config);
+  const client = await getAdminClient(config);
   const key = throwOnError<SigningKeyResponse>(
     '1claw signing key',
-    await getAdminClient(config).signingKeys.create(agentId, { chain }),
+    await client.signingKeys.create(agentId, { chain }),
   );
   if (!key.address) throw new Error('1claw signing key: no address returned');
   return key.address;
@@ -63,8 +65,9 @@ export async function provisionSigningKey(config: Config, agentId: string, chain
 
 export async function putSecret(config: Config, vaultId: string, path: string, value: string): Promise<void> {
   requireHumanKey(config);
+  const client = await getAdminClient(config);
   throwOnError(
     `1claw put secret ${path}`,
-    await getAdminClient(config).secrets.set(vaultId, path, value, { type: 'api_key' }),
+    await client.secrets.set(vaultId, path, value, { type: 'api_key' }),
   );
 }

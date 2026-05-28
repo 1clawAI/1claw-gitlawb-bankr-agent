@@ -77,11 +77,25 @@ export async function createRepo(config: Config, body: CreateRepoRequest): Promi
   return { repoUrl: `gitlawb://${ownerDid}/${body.name}` };
 }
 
+async function hasGitHead(cwd: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  const { exitCode } = await execa('git', ['rev-parse', '--verify', 'HEAD'], { cwd, env, reject: false });
+  return exitCode === 0;
+}
+
+/** Empty GitLawb repos clone with no branches — ensure `main` exists before the first commit. */
+async function ensureMainBranch(cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
+  if (await hasGitHead(cwd, env)) return;
+  const { exitCode } = await execa('git', ['rev-parse', '--verify', 'main'], { cwd, env, reject: false });
+  if (exitCode === 0) return;
+  await execa('git', ['checkout', '-b', 'main'], { cwd, env });
+}
+
 async function prepareWorktree(config: Config, repoUrl: string): Promise<string> {
   const env = glEnv(config);
   const work = mkdtempSync(join(tmpdir(), 'gitlawb-'));
   try {
     await execa('git', ['clone', '-q', repoUrl, work], { env });
+    await ensureMainBranch(work, env);
   } catch {
     await execa('git', ['init', '-q', '-b', 'main'], { cwd: work, env });
     await execa('git', ['remote', 'add', 'origin', repoUrl], { cwd: work, env });
@@ -100,5 +114,7 @@ export async function pushFile(config: Config, body: PushFileRequest): Promise<v
   const { stdout: status } = await execa('git', ['status', '--porcelain'], { cwd: work, env });
   if (!status.trim()) return;
   await execa('git', ['commit', '-q', '-m', body.message], { cwd: work, env });
-  await execa('git', ['push', 'origin', 'main'], { cwd: work, env });
+  // First commit on an empty clone can land on a detached HEAD — normalize before push.
+  await execa('git', ['branch', '-M', 'main'], { cwd: work, env });
+  await execa('git', ['push', '-u', 'origin', 'main'], { cwd: work, env });
 }

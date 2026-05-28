@@ -52,6 +52,7 @@ function createIntentsX402Signer(config: Config): X402Signer {
 
 let runtimeClient: OneclawClient | undefined;
 let adminClient: OneclawClient | undefined;
+let adminAuthPromise: Promise<void> | undefined;
 
 /** Runtime agent client — exchanges ocv_ for JWT, auto-pays x402 overages via HSM key. */
 export function getRuntimeClient(config: Config): OneclawClient {
@@ -65,13 +66,23 @@ export function getRuntimeClient(config: Config): OneclawClient {
   return runtimeClient;
 }
 
-/** Bootstrap admin client — exchanges 1ck_ for JWT. */
-export function getAdminClient(config: Config): OneclawClient {
+/** Bootstrap admin client — exchanges 1ck_ for JWT before returning. */
+export async function getAdminClient(config: Config): Promise<OneclawClient> {
+  if (!config.ONECLAW_HUMAN_API_KEY) {
+    throw new Error('ONECLAW_HUMAN_API_KEY is required');
+  }
   adminClient ??= createClient({
     baseUrl: config.ONECLAW_API_URL,
     apiKey: config.ONECLAW_HUMAN_API_KEY,
     maxAutoPayUsd: MAX_AUTO_PAY_USD,
   });
+  // SDK auto-auth for 1ck_ keys is fire-and-forget; await explicit exchange so the
+  // first admin call (create agent) always has Authorization: Bearer …
+  const apiKey = config.ONECLAW_HUMAN_API_KEY;
+  adminAuthPromise ??= (async () => {
+    throwOnError('1claw authenticate', await adminClient!.auth.apiKeyToken({ api_key: apiKey }));
+  })();
+  await adminAuthPromise;
   return adminClient;
 }
 
@@ -79,4 +90,5 @@ export function getAdminClient(config: Config): OneclawClient {
 export function resetClients(): void {
   runtimeClient = undefined;
   adminClient = undefined;
+  adminAuthPromise = undefined;
 }

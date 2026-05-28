@@ -33,6 +33,7 @@ function parseBankrError(status: number, body: string): string {
     if (status === 403 && detail.toLowerCase().includes('24 hours')) {
       return `[step 4] bankr: wallet must be 24h old before token deploy — ${detail}`;
     }
+    if (status === 403 && detail.toLowerCase().includes('read-only')) {
       return `[step 4] bankr: API key is read-only — enable write access (and Token Launch) at https://bankr.bot/api, then update the vault secret or set BANKR_API_KEY in .env`;
     }
     return `[step 4] bankr deploy failed: ${status} ${detail}`;
