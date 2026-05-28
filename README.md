@@ -184,15 +184,20 @@ src/
 - `POST /v1/agents/{id}/transactions` on Base; polls until `tx_hash`
 - V4 swap calldata is built in `util/v4-swap.ts` — **PoolKey / Permit2 wiring still TODO** for live swaps against a freshly launched token
 
-## Verified status (May 2026)
+## Implementation & test status
 
-| Step | Status |
-|------|--------|
-| 1 — DID from 1Claw | ✅ |
-| 2 — GitLawb push | ✅ (`agent-{uuid-prefix}` repos on public node) |
-| 3 — Shroud LLM + commit | ✅ |
-| 4 — Bankr token deploy | ⏳ needs Club + 24h wallet (API wired; image optional) |
-| 5 — Intents swap | 🔧 calldata only; pool/approval TBD |
+This table reflects what is **implemented in code** vs what has been **run successfully end-to-end** against live services. There is no automated CI for the full flow.
+
+| Step | Code | E2E tested |
+|------|------|------------|
+| **Bootstrap** — agent, vault, signing key, profile → `.env` | ✅ | ✅ |
+| **1** — DID from 1Claw (`agents/me` → `did:key`) | ✅ | ✅ |
+| **2** — GitLawb push (`agent-{uuid-prefix}` on public node) | ✅ | ✅ (empty-repo `main` branch handling) |
+| **3** — Shroud LLM + commit `agent.ts` | ✅ | ✅ |
+| **4** — Bankr `POST /token-launches/deploy` (ticker, name, optional `image`) | ✅ | ❌ — blocked on **Bankr Club**, **24h wallet**, and write + Token Launch API key; not completed in maintainer runs |
+| **5** — 1Claw Intents swap on Base | 🔧 partial | ❌ — intent submit is wired, but V4 **PoolKey** uses placeholders and **Permit2 → UniversalRouter** approval is not implemented for the launched token |
+
+A full green `pnpm agent` run (all five steps without manual intervention) has **not** been recorded in this repository yet.
 
 No stub fallbacks — missing credentials or CLI fail fast with actionable errors.
 
