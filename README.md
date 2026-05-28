@@ -64,13 +64,14 @@ pnpm install
 cp .env.example .env
 # Optional: ONECLAW_HUMAN_API_KEY=1ck_… in .env
 
-pnpm bootstrap   # masked prompts for human + Bankr keys; writes agent creds to .env
+pnpm bootstrap   # agent name, vault name, Bankr ticker + API keys; writes .env
 pnpm agent       # pulls Bankr from vault; runs all 5 steps
 ```
 
-`bootstrap` accepts keys from `.env` or **masked interactive prompts** (`*` echo).
-Third-party secrets (Bankr, optional Neynar) are stored in the **1Claw vault** and
-cleared from `.env` after bootstrap.
+`bootstrap` prompts for (or reads from `.env`): **1Claw agent name**, **vault name**,
+**Bankr token ticker**, optional **token name**, then **masked API keys** (`*` echo).
+Profile fields are written to `.env`; third-party secrets go in the **1Claw vault** and
+are cleared from `.env` after bootstrap.
 
 ## How secrets work
 
@@ -96,6 +97,8 @@ Override any vault secret locally by setting the matching env var (e.g. `BANKR_A
 | Variable | Step | Notes |
 |----------|------|-------|
 | `ONECLAW_HUMAN_API_KEY` | bootstrap | `1ck_…` |
+| `ONECLAW_AGENT_NAME` / `ONECLAW_VAULT_NAME` | bootstrap | 1Claw resource labels (default `reference-agent`, `reference-agent-secrets`) |
+| `BANKR_TOKEN_SYMBOL` / `BANKR_TOKEN_NAME` | bootstrap → 4 | ticker (e.g. `AGENT`); name optional — defaults to `Agent <id>` |
 | `ONECLAW_AGENT_*` / `ONECLAW_VAULT_ID` | agent | written by bootstrap |
 | `GITLAWB_NODE_URL` | 2 | default `https://node.gitlawb.com` |
 | `SHROUD_API_URL` / `SHROUD_MODEL` | 3 | default model `gpt-4o-mini` |
@@ -108,7 +111,8 @@ Blank `.env` values are treated as unset (zod defaults apply).
 
 ```
 src/
-├── bootstrap.ts              # provision agent, vault, masked secret prompts
+├── bootstrap.ts              # provision agent, vault, profile + secret prompts
+├── bootstrap-settings.ts     # agent/vault/ticker prompts + validation
 ├── agent.ts                  # 5-step orchestrator
 ├── config.ts                 # zod env schema
 ├── secrets.ts                # vault secret registry + runtime overlay

@@ -16,6 +16,10 @@ const schema = z.object({
   ONECLAW_AGENT_API_KEY: z.string().default(''), // ocv_… — runtime; written by bootstrap
   ONECLAW_AGENT_ID: z.string().default(''), //      runtime; written by bootstrap
   ONECLAW_VAULT_ID: z.string().default(''), //      vault holding third-party secrets
+  ONECLAW_AGENT_NAME: z.string().default(''), //    display name; written by bootstrap
+  ONECLAW_VAULT_NAME: z.string().default(''), //    vault label; written by bootstrap
+  BANKR_TOKEN_SYMBOL: z.string().default(''), //    ticker; written by bootstrap (e.g. AGENT)
+  BANKR_TOKEN_NAME: z.string().default(''), //      full name; empty → Agent <id> at deploy
   // Shroud — OpenAI-compatible TEE LLM proxy (auths with the agent key by default)
   SHROUD_API_URL: z.string().url().default('https://shroud.1claw.xyz/v1'),
   SHROUD_API_KEY: z.string().default(''),

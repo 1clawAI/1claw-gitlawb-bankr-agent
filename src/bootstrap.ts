@@ -5,6 +5,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
+import { resolveBootstrapProfile } from './bootstrap-settings.js';
 import { loadConfig, type Config } from './config.js';
 import { createAgent, createVault, grantAgentRead, provisionSigningKey, putSecret, SIGNING_KEY_CHAIN } from './clients/oneclaw-admin.js';
 import { VAULT_SECRETS } from './secrets.js';
@@ -56,9 +57,16 @@ async function main(): Promise<void> {
 
   console.log(chalk.cyan.bold('\n1Claw bootstrap — provisioning your agent\n'));
   if (interactive) {
-    console.log(chalk.dim('  enter keys below (masked with *) or set them in .env beforehand.\n'));
+    console.log(
+      chalk.dim('  set names/ticker in .env or answer prompts below; API keys are masked with *.\n'),
+    );
   }
 
+  console.log(chalk.cyan('agent profile:'));
+  const profile = await resolveBootstrapProfile(config, interactive);
+  console.log(chalk.green('✓ profile') + chalk.dim(`  agent=${profile.agentName}  vault=${profile.vaultName}  ticker=${profile.tokenSymbol}`));
+
+  console.log(chalk.cyan('\napi keys:'));
   const humanKey = await resolveBootstrapSecret(
     '1Claw human API key (1ck_…)',
     config.ONECLAW_HUMAN_API_KEY,
@@ -70,20 +78,27 @@ async function main(): Promise<void> {
     interactive,
   );
 
-  const bootstrapConfig: Config = { ...config, ONECLAW_HUMAN_API_KEY: humanKey };
+  const bootstrapConfig: Config = {
+    ...config,
+    ONECLAW_HUMAN_API_KEY: humanKey,
+    ONECLAW_AGENT_NAME: profile.agentName,
+    ONECLAW_VAULT_NAME: profile.vaultName,
+    BANKR_TOKEN_SYMBOL: profile.tokenSymbol,
+    BANKR_TOKEN_NAME: profile.tokenName,
+  };
 
   // 1. Create the agent (Base intents enabled) — it receives its own ocv_ key.
-  const { agentId, agentApiKey } = await createAgent(bootstrapConfig, 'reference-agent');
-  console.log(chalk.green('✓ agent created') + chalk.dim(`  ${agentId}`));
+  const { agentId, agentApiKey } = await createAgent(bootstrapConfig, profile.agentName);
+  console.log(chalk.green('✓ agent created') + chalk.dim(`  ${profile.agentName}  ${agentId}`));
 
   // 2. Provision its EVM signing key (HSM-held; used for Base intents).
   const address = await provisionSigningKey(bootstrapConfig, agentId, SIGNING_KEY_CHAIN);
   console.log(chalk.green('✓ EVM signing key') + chalk.dim(`  ${address} (chain: ${SIGNING_KEY_CHAIN})`));
 
   // 3. Create a vault for third-party secrets and let the agent read it.
-  const vaultId = await createVault(bootstrapConfig, 'reference-agent-secrets');
+  const vaultId = await createVault(bootstrapConfig, profile.vaultName);
   await grantAgentRead(bootstrapConfig, vaultId, agentId);
-  console.log(chalk.green('✓ vault + read policy') + chalk.dim(`  ${vaultId}`));
+  console.log(chalk.green('✓ vault + read policy') + chalk.dim(`  ${profile.vaultName}  ${vaultId}`));
 
   // 4. Store third-party secrets in the vault (Bankr required; others optional).
   const storedNames: string[] = [];
@@ -120,6 +135,10 @@ async function main(): Promise<void> {
     ONECLAW_AGENT_ID: agentId,
     ONECLAW_AGENT_API_KEY: agentApiKey,
     ONECLAW_VAULT_ID: vaultId,
+    ONECLAW_AGENT_NAME: profile.agentName,
+    ONECLAW_VAULT_NAME: profile.vaultName,
+    BANKR_TOKEN_SYMBOL: profile.tokenSymbol,
+    BANKR_TOKEN_NAME: profile.tokenName,
   });
   clearEnvKeys(
     envPath,
