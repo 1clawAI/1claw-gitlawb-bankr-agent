@@ -20,13 +20,14 @@ const schema = z.object({
   ONECLAW_VAULT_NAME: z.string().default(''), //    vault label; written by bootstrap
   BANKR_TOKEN_SYMBOL: z.string().default(''), //    ticker; written by bootstrap (e.g. AGENT)
   BANKR_TOKEN_NAME: z.string().default(''), //      full name; empty → Agent <id> at deploy
+  BANKR_TOKEN_IMAGE: z.string().default(''), //      logo URL (https); optional, sent as `image` to Bankr
   // Shroud — OpenAI-compatible TEE LLM proxy (auths with the agent key by default)
   SHROUD_API_URL: z.string().url().default('https://shroud.1claw.xyz/v1'),
   SHROUD_API_KEY: z.string().default(''),
   SHROUD_MODEL: z.string().default('gpt-4o-mini'),
   SHROUD_PROVIDER: z.string().default(''),
   // GitLawb — decentralized git node (gl CLI handles identity/auth)
-  GITLAWB_NODE_URL: z.string().url().default('http://localhost:7545'),
+  GITLAWB_NODE_URL: z.string().url().default('https://node.gitlawb.com'),
   // Bankr — token launch (normally pulled from the vault, not set here)
   BANKR_API_URL: z.string().url().default('https://api.bankr.bot'),
   BANKR_API_KEY: z.string().default(''),

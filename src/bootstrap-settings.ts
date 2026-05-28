@@ -12,6 +12,7 @@ export interface BootstrapProfile {
   vaultName: string;
   tokenSymbol: string;
   tokenName: string;
+  tokenImage: string;
 }
 
 function validateResourceName(label: string, value: string): string {
@@ -33,6 +34,38 @@ function validateTokenSymbol(value: string): string {
 
 function defaultVaultName(agentName: string): string {
   return `${agentName}-secrets`;
+}
+
+function validateTokenImageUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error('token image must be a valid URL');
+  }
+  if (url.protocol !== 'https:') {
+    throw new Error('token image URL must use https (direct link to PNG/JPG/WebP/GIF)');
+  }
+  return trimmed;
+}
+
+async function resolveOptionalImageUrl(envValue: string, interactive: boolean): Promise<string> {
+  const fromEnv = envValue.trim();
+  if (fromEnv) return validateTokenImageUrl(fromEnv);
+  if (!interactive) return '';
+
+  for (;;) {
+    const raw = await promptLine(chalk.cyan('  Bankr token image URL (optional — https, Enter to skip)'), '');
+    if (!raw.trim()) return '';
+    try {
+      return validateTokenImageUrl(raw);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(chalk.yellow(`    ✗ ${msg}`));
+    }
+  }
 }
 
 async function resolveSetting(
@@ -97,5 +130,7 @@ export async function resolveBootstrapProfile(config: Config, interactive: boole
     ).trim();
   }
 
-  return { agentName, vaultName, tokenSymbol, tokenName };
+  const tokenImage = await resolveOptionalImageUrl(config.BANKR_TOKEN_IMAGE, interactive);
+
+  return { agentName, vaultName, tokenSymbol, tokenName, tokenImage };
 }

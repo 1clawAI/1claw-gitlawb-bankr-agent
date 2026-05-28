@@ -10,14 +10,17 @@ import type { AgentContext, StepResult } from '../types.js';
 export async function launchTokenStep(ctx: AgentContext, config: Config): Promise<StepResult> {
   const symbol = (config.BANKR_TOKEN_SYMBOL || 'AGENT').toUpperCase();
   const name = config.BANKR_TOKEN_NAME.trim() || `Agent ${ctx.keyId!.split('-')[0]}`;
+  const imageUrl = config.BANKR_TOKEN_IMAGE.trim();
   log.detail('name', name);
   log.detail('symbol', symbol);
+  if (imageUrl) log.detail('image', imageUrl);
 
   const { tokenAddress } = await launchToken(config, {
     name,
     symbol,
     ownerDid: ctx.did!,
     repoUrl: ctx.repoUrl ?? '',
+    imageUrl: imageUrl || undefined,
   });
   log.detail('token', tokenAddress);
 

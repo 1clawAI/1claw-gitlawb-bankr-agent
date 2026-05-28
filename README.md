@@ -62,16 +62,33 @@ gl identity new   # once per machine
 ```bash
 pnpm install
 cp .env.example .env
-# Optional: ONECLAW_HUMAN_API_KEY=1ck_… in .env
 
-pnpm bootstrap   # agent name, vault name, Bankr ticker + API keys; writes .env
-pnpm agent       # pulls Bankr from vault; runs all 5 steps
+# Optional — set before bootstrap (or answer prompts interactively):
+# ONECLAW_HUMAN_API_KEY=1ck_…
+# ONECLAW_AGENT_NAME=my-agent
+# ONECLAW_VAULT_NAME=my-agent-secrets
+# BANKR_TOKEN_SYMBOL=CLAW
+# BANKR_TOKEN_NAME=My Agent Token
+# BANKR_TOKEN_IMAGE=https://example.com/logo.png
+
+pnpm bootstrap   # profile + masked API keys → agent, vault, .env
+pnpm agent       # 5 steps (Bankr key pulled from vault)
 ```
 
-`bootstrap` prompts for (or reads from `.env`): **1Claw agent name**, **vault name**,
-**Bankr token ticker**, optional **token name**, then **masked API keys** (`*` echo).
-Profile fields are written to `.env`; third-party secrets go in the **1Claw vault** and
-are cleared from `.env` after bootstrap.
+### What `bootstrap` configures
+
+| Prompt / `.env` field | 1Claw / Bankr use |
+|----------------------|-------------------|
+| `ONECLAW_AGENT_NAME` | Agent resource name (default `reference-agent`) |
+| `ONECLAW_VAULT_NAME` | Vault label for third-party secrets (default `{agentName}-secrets`) |
+| `BANKR_TOKEN_SYMBOL` | Token ticker on deploy (default `AGENT`) |
+| `BANKR_TOKEN_NAME` | Token name; blank → `Agent <uuid-prefix>` at deploy |
+| `BANKR_TOKEN_IMAGE` | Optional `https` logo URL → Bankr `image` field |
+| `ONECLAW_HUMAN_API_KEY` | Masked — provisions agent + vault |
+| `BANKR_API_KEY` | Masked — stored in vault, cleared from `.env` |
+
+After bootstrap, `.env` contains agent credentials (`ocv_…`, vault id) and profile fields.
+**Only** `BANKR_API_KEY` (and optional Neynar keys) are scrubbed from `.env`; runtime loads them from the vault.
 
 ## How secrets work
 
@@ -91,15 +108,16 @@ are cleared from `.env` after bootstrap.
 ```
 
 Override any vault secret locally by setting the matching env var (e.g. `BANKR_API_KEY`).
+Override token metadata anytime via `BANKR_TOKEN_SYMBOL`, `BANKR_TOKEN_NAME`, or `BANKR_TOKEN_IMAGE` in `.env` without re-bootstrapping.
 
 ## Environment
 
 | Variable | Step | Notes |
 |----------|------|-------|
 | `ONECLAW_HUMAN_API_KEY` | bootstrap | `1ck_…` |
-| `ONECLAW_AGENT_NAME` / `ONECLAW_VAULT_NAME` | bootstrap | 1Claw resource labels (default `reference-agent`, `reference-agent-secrets`) |
-| `BANKR_TOKEN_SYMBOL` / `BANKR_TOKEN_NAME` | bootstrap → 4 | ticker (e.g. `AGENT`); name optional — defaults to `Agent <id>` |
-| `ONECLAW_AGENT_*` / `ONECLAW_VAULT_ID` | agent | written by bootstrap |
+| `ONECLAW_AGENT_NAME` / `ONECLAW_VAULT_NAME` | bootstrap | 1Claw labels; written to `.env` |
+| `BANKR_TOKEN_SYMBOL` / `BANKR_TOKEN_NAME` / `BANKR_TOKEN_IMAGE` | bootstrap → 4 | ticker, name, optional `https` logo |
+| `ONECLAW_AGENT_ID` / `ONECLAW_AGENT_API_KEY` / `ONECLAW_VAULT_ID` | agent | written by bootstrap |
 | `GITLAWB_NODE_URL` | 2 | default `https://node.gitlawb.com` |
 | `SHROUD_API_URL` / `SHROUD_MODEL` | 3 | default model `gpt-4o-mini` |
 | `BANKR_API_KEY` | 4 | vault at runtime; read-write + Token Launch |
@@ -112,7 +130,7 @@ Blank `.env` values are treated as unset (zod defaults apply).
 ```
 src/
 ├── bootstrap.ts              # provision agent, vault, profile + secret prompts
-├── bootstrap-settings.ts     # agent/vault/ticker prompts + validation
+├── bootstrap-settings.ts     # agent/vault/ticker/image prompts + validation
 ├── agent.ts                  # 5-step orchestrator
 ├── config.ts                 # zod env schema
 ├── secrets.ts                # vault secret registry + runtime overlay
@@ -121,12 +139,13 @@ src/
 │   ├── oneclaw.ts            # runtime: DID, vault, Intents
 │   ├── oneclaw-admin.ts      # bootstrap admin via SDK
 │   ├── intents-evm-signer.ts # HSM signer for x402 payments
-│   ├── gitlawb.ts            # gl + git push (clone-before-push)
+│   ├── gitlawb.ts            # gl + git push (empty-repo main branch fix)
 │   ├── shroud.ts             # Shroud OpenAI-compatible client
 │   └── bankr.ts              # POST /token-launches/deploy
 ├── steps/                    # 01–05, one file per step
 └── util/
-    ├── prompt-secret.ts      # masked stdin for bootstrap
+    ├── prompt-secret.ts      # masked stdin for bootstrap secrets
+    ├── prompt-line.ts        # visible stdin for bootstrap profile
     ├── timeout.ts
     └── v4-swap.ts            # Uniswap V4 calldata (step 5)
 ```
@@ -136,8 +155,9 @@ src/
 ### 1Claw ([docs](https://docs.1claw.xyz/))
 
 - **`@1claw/sdk`** — JWT exchange from `ocv_` / `1ck_`, vault reads, Intents submit/poll
+- **Bootstrap** — awaits `1ck_` → JWT before admin calls (agent create, vault, signing key)
 - **x402** — automatic micropayments on vault 402s via HSM-backed `X402Signer`
-- **DID (step 1)** — `GET /v1/agents/me` → `ssh_public_key` (raw base64 Ed25519 or OpenSSH wire format) → `did:key:z…`
+- **DID (step 1)** — `GET /v1/agents/me` → `ssh_public_key` → `did:key:z…`
 
 ### Shroud (step 3)
 
@@ -148,12 +168,15 @@ src/
 ### GitLawb (step 2)
 
 - `gl register --node $GITLAWB_NODE_URL` → `gl repo create` → `git push gitlawb://{gl_did}/{repo}`
-- Idempotent: skips create on 409; clones existing repo before each file push
+- Repo name: `agent-{uuid-prefix}` (from 1Claw agent id)
+- Idempotent: skips create on 409; ensures `main` exists before first push on empty repos
 
 ### Bankr (step 4)
 
 - `POST /token-launches/deploy` with `X-API-Key` (not the legacy `/agent/prompt` flow)
+- Body: `tokenName`, `tokenSymbol`, `description`, optional `image` (`https` URL), optional `websiteUrl`
 - Requires **Bankr Club**, read-write key, and wallet age ≥ 24h
+- Use a **direct** image URL (hosted file); IPFS upload failures can block deploys ([FAQ](https://docs.bankr.bot/faq/token-launching))
 - Clear errors for read-only keys, Club, and wallet cooldown
 
 ### Intents (step 5)
@@ -168,7 +191,7 @@ src/
 | 1 — DID from 1Claw | ✅ |
 | 2 — GitLawb push | ✅ (`agent-{uuid-prefix}` repos on public node) |
 | 3 — Shroud LLM + commit | ✅ |
-| 4 — Bankr token deploy | ⏳ needs Club + 24h wallet (API wired) |
+| 4 — Bankr token deploy | ⏳ needs Club + 24h wallet (API wired; image optional) |
 | 5 — Intents swap | 🔧 calldata only; pool/approval TBD |
 
 No stub fallbacks — missing credentials or CLI fail fast with actionable errors.
@@ -176,7 +199,7 @@ No stub fallbacks — missing credentials or CLI fail fast with actionable error
 ## Scripts
 
 ```bash
-pnpm bootstrap   # one-time: agent + vault + vault secrets
+pnpm bootstrap   # agent profile + vault secrets + credentials → .env
 pnpm agent       # run the 5-step flow
 pnpm typecheck   # tsc --noEmit
 ```

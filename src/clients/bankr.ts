@@ -10,6 +10,7 @@ export interface LaunchTokenRequest {
   symbol: string;
   ownerDid: string;
   repoUrl: string;
+  imageUrl?: string;
 }
 
 const LAUNCH_TIMEOUT_MS = 90_000;
@@ -50,12 +51,13 @@ export async function launchToken(config: Config, body: LaunchTokenRequest): Pro
   }
 
   const headers = { 'content-type': 'application/json', 'X-API-Key': config.BANKR_API_KEY };
-  const payload = {
+  const payload: Record<string, string | undefined> = {
     tokenName: body.name,
     tokenSymbol: body.symbol,
     description: `Autonomous 1Claw agent token. Owner DID: ${body.ownerDid}. Repo: ${body.repoUrl}`,
     websiteUrl: body.repoUrl.startsWith('gitlawb://') ? undefined : body.repoUrl,
   };
+  if (body.imageUrl) payload.image = body.imageUrl;
 
   return withTimeout('bankr token deploy', LAUNCH_TIMEOUT_MS, async (signal) => {
     const res = await fetch(`${config.BANKR_API_URL}/token-launches/deploy`, {

@@ -64,7 +64,11 @@ async function main(): Promise<void> {
 
   console.log(chalk.cyan('agent profile:'));
   const profile = await resolveBootstrapProfile(config, interactive);
-  console.log(chalk.green('✓ profile') + chalk.dim(`  agent=${profile.agentName}  vault=${profile.vaultName}  ticker=${profile.tokenSymbol}`));
+  const imageHint = profile.tokenImage ? '  image=yes' : '';
+  console.log(
+    chalk.green('✓ profile') +
+      chalk.dim(`  agent=${profile.agentName}  vault=${profile.vaultName}  ticker=${profile.tokenSymbol}${imageHint}`),
+  );
 
   console.log(chalk.cyan('\napi keys:'));
   const humanKey = await resolveBootstrapSecret(
@@ -85,6 +89,7 @@ async function main(): Promise<void> {
     ONECLAW_VAULT_NAME: profile.vaultName,
     BANKR_TOKEN_SYMBOL: profile.tokenSymbol,
     BANKR_TOKEN_NAME: profile.tokenName,
+    BANKR_TOKEN_IMAGE: profile.tokenImage,
   };
 
   // 1. Create the agent (Base intents enabled) — it receives its own ocv_ key.
@@ -139,6 +144,7 @@ async function main(): Promise<void> {
     ONECLAW_VAULT_NAME: profile.vaultName,
     BANKR_TOKEN_SYMBOL: profile.tokenSymbol,
     BANKR_TOKEN_NAME: profile.tokenName,
+    BANKR_TOKEN_IMAGE: profile.tokenImage,
   });
   clearEnvKeys(
     envPath,
