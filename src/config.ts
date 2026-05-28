@@ -28,6 +28,10 @@ const schema = z.object({
   // Run a subset of steps (inclusive), e.g. AGENT_START_STEP=5 AGENT_END_STEP=5
   AGENT_START_STEP: z.coerce.number().int().min(1).max(5).default(1),
   AGENT_END_STEP: z.coerce.number().int().min(1).max(5).default(5),
+  AGENT_SWAP_DRY_RUN: z
+    .enum(['', '0', '1', 'true', 'false'])
+    .default('')
+    .transform((v) => v === '1' || v === 'true'),
   // Shroud — OpenAI-compatible TEE LLM proxy (auths with the agent key by default)
   SHROUD_API_URL: z.string().url().default('https://shroud.1claw.xyz/v1'),
   SHROUD_API_KEY: z.string().default(''),

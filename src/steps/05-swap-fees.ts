@@ -45,8 +45,16 @@ export async function swapFees(ctx: AgentContext, config: Config): Promise<StepR
   const owner = await getSigningAddress(config);
   const balance = await readTokenBalance(client, tokenIn, owner);
   const amountIn = balance < DEMO_AMOUNT_IN ? balance : DEMO_AMOUNT_IN;
+  log.detail('wallet', owner);
+  log.detail('balance', balance.toString());
   if (amountIn === 0n) {
-    throw new Error(`[step 5] agent wallet has zero ${tokenIn} balance — cannot swap`);
+    if (config.AGENT_SWAP_DRY_RUN) {
+      log.detail('dry-run', 'zero balance — building calldata only, skipping on-chain txs');
+    } else {
+      throw new Error(
+        `[step 5] agent wallet ${owner} has zero token balance — fund it or set AGENT_SWAP_DRY_RUN=1 to verify calldata`,
+      );
+    }
   }
 
   log.detail('pool', ctx.poolId);
@@ -56,7 +64,10 @@ export async function swapFees(ctx: AgentContext, config: Config): Promise<StepR
   log.detail('pair', `${pool.currency0} / ${pool.currency1}`);
   log.detail('amountIn', amountIn.toString());
 
-  await ensurePermit2ForSwap(config, client, owner, tokenIn, amountIn);
+  const swapAmount = amountIn === 0n ? DEMO_AMOUNT_IN : amountIn;
+  if (amountIn > 0n) {
+    await ensurePermit2ForSwap(config, client, owner, tokenIn, amountIn);
+  }
 
   const swap = buildV4ExactInSwap({
     tokenIn,
@@ -64,7 +75,7 @@ export async function swapFees(ctx: AgentContext, config: Config): Promise<StepR
     fee: pool.fee,
     tickSpacing: pool.tickSpacing,
     hooks: pool.hooks,
-    amountIn,
+    amountIn: swapAmount,
     amountOutMinimum: 0n,
     deadline: BigInt(Math.floor(Date.now() / 1000) + 1200),
   });
@@ -73,6 +84,14 @@ export async function swapFees(ctx: AgentContext, config: Config): Promise<StepR
   log.detail('swap', `${tokenIn} → ${tokenOut}`);
   log.detail('router', swap.to);
   log.detail('calldata', `${swap.data.slice(0, 18)}… (${(swap.data.length - 2) / 2} bytes)`);
+
+  if (config.AGENT_SWAP_DRY_RUN || amountIn === 0n) {
+    log.detail('dry-run', 'skipping intent submit');
+    return {
+      patch: { swapTokenOut: tokenOut },
+      done: `dry-run ${tokenIn} → ${tokenOut}`,
+    };
+  }
 
   const { txHash } = await submitIntent(config, {
     chain: 'base',
