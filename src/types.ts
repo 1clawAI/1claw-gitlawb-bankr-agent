@@ -14,7 +14,10 @@ export interface AgentContext {
   // step 4 — token
   tokenSymbol?: string;
   tokenAddress?: string;
+  poolId?: string;
+  deployTxHash?: string;
   // step 5 — swap
+  swapTokenOut?: string;
   txHash?: string;
   basescanUrl?: string;
 }

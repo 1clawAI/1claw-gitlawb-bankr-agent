@@ -8,6 +8,8 @@ import { encodeAbiParameters, encodeFunctionData, getAddress, type Address, type
 // Base mainnet (chainId 8453).
 export const UNIVERSAL_ROUTER: Address = '0x6fF5693b99212Da76ad316178A184AB56D299b43';
 export const USDC: Address = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+/** Native ETH currency address used in Uniswap V4 on Base (pairs with Bankr/Doppler launches). */
+export const WETH_BASE: Address = '0x4200000000000000000000000000000000000006';
 export const PERMIT2: Address = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 export const ZERO_ADDRESS: Address = '0x0000000000000000000000000000000000000000';
 

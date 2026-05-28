@@ -1,33 +1,76 @@
-// Step 5/5 — swap a small amount of the launched token -> USDC on Uniswap V4
-// (Base) by submitting an Intent to 1Claw. The HSM signs; the key never leaves it.
+// Step 5/5 — swap launched token → pool counter-currency on Uniswap V4 (Base) via 1Claw Intents.
+// PoolKey is read from the Bankr deploy tx Initialize event; approvals use Permit2.
 
-import { parseUnits } from 'viem';
+import { type Address, type Hex } from 'viem';
+import { getBasePublicClient, getSigningAddress } from '../clients/evm-wallet.js';
 import { submitIntent } from '../clients/oneclaw.js';
-import { buildV4ExactInSwap, USDC } from '../util/v4-swap.js';
+import {
+  counterCurrency,
+  fetchPoolKeyByPoolId,
+  fetchPoolKeyFromDeployTx,
+  type V4PoolKey,
+} from '../util/pool-key.js';
+import { ensurePermit2ForSwap, readTokenBalance } from '../util/permit2.js';
+import { buildV4ExactInSwap } from '../util/v4-swap.js';
 import * as log from '../logger.js';
 import type { Config } from '../config.js';
 import type { AgentContext, StepResult } from '../types.js';
 
 const BASE_CHAIN_ID = 8453;
-// Small illustrative amount of the freshly launched token (18 decimals).
-const DEMO_AMOUNT_IN = parseUnits('1000', 18);
+const DEMO_AMOUNT_IN = 1_000n * 10n ** 18n;
+
+async function resolvePoolKey(
+  ctx: AgentContext,
+  config: Config,
+): Promise<V4PoolKey> {
+  const poolId = ctx.poolId!;
+  const client = getBasePublicClient(config);
+
+  if (ctx.deployTxHash) {
+    return fetchPoolKeyFromDeployTx(client, ctx.deployTxHash as Hex, poolId);
+  }
+  return fetchPoolKeyByPoolId(client, poolId);
+}
 
 export async function swapFees(ctx: AgentContext, config: Config): Promise<StepResult> {
-  // TODO(spec): discover the real V4 PoolKey (fee / tickSpacing / hooks) for the
-  // Bankr/Clanker-launched token — these defaults are placeholders. Also note the
-  // input token must be pre-approved to Permit2 -> UniversalRouter (prior intents).
+  if (!ctx.tokenAddress || !ctx.poolId) {
+    throw new Error('[step 5] missing tokenAddress or poolId — run step 4 first');
+  }
+
+  const tokenIn = ctx.tokenAddress as Address;
+  const pool = await resolvePoolKey(ctx, config);
+  const tokenOut = counterCurrency(pool, tokenIn);
+
+  const client = getBasePublicClient(config);
+  const owner = await getSigningAddress(config);
+  const balance = await readTokenBalance(client, tokenIn, owner);
+  const amountIn = balance < DEMO_AMOUNT_IN ? balance : DEMO_AMOUNT_IN;
+  if (amountIn === 0n) {
+    throw new Error(`[step 5] agent wallet has zero ${tokenIn} balance — cannot swap`);
+  }
+
+  log.detail('pool', ctx.poolId);
+  log.detail('fee', String(pool.fee));
+  log.detail('tickSpacing', String(pool.tickSpacing));
+  log.detail('hooks', pool.hooks);
+  log.detail('pair', `${pool.currency0} / ${pool.currency1}`);
+  log.detail('amountIn', amountIn.toString());
+
+  await ensurePermit2ForSwap(config, client, owner, tokenIn, amountIn);
+
   const swap = buildV4ExactInSwap({
-    tokenIn: ctx.tokenAddress as `0x${string}`,
-    tokenOut: USDC,
-    fee: 10_000, // 1%
-    tickSpacing: 200,
-    hooks: '0x0000000000000000000000000000000000000000',
-    amountIn: DEMO_AMOUNT_IN,
-    amountOutMinimum: 0n, // demo only — no slippage protection
+    tokenIn,
+    tokenOut,
+    fee: pool.fee,
+    tickSpacing: pool.tickSpacing,
+    hooks: pool.hooks,
+    amountIn,
+    amountOutMinimum: 0n,
     deadline: BigInt(Math.floor(Date.now() / 1000) + 1200),
   });
 
   log.detail('chain', `base (${BASE_CHAIN_ID})`);
+  log.detail('swap', `${tokenIn} → ${tokenOut}`);
   log.detail('router', swap.to);
   log.detail('calldata', `${swap.data.slice(0, 18)}… (${(swap.data.length - 2) / 2} bytes)`);
 
@@ -41,7 +84,7 @@ export async function swapFees(ctx: AgentContext, config: Config): Promise<StepR
   log.detail('tx', txHash);
 
   return {
-    patch: { txHash, basescanUrl },
+    patch: { txHash, basescanUrl, swapTokenOut: tokenOut },
     done: basescanUrl,
   };
 }

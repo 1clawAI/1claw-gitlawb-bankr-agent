@@ -15,17 +15,24 @@ export async function launchTokenStep(ctx: AgentContext, config: Config): Promis
   log.detail('symbol', symbol);
   if (imageUrl) log.detail('image', imageUrl);
 
-  const { tokenAddress } = await launchToken(config, {
+  const launch = await launchToken(config, {
     name,
     symbol,
     ownerDid: ctx.did!,
     repoUrl: ctx.repoUrl ?? '',
     imageUrl: imageUrl || undefined,
   });
-  log.detail('token', tokenAddress);
+  log.detail('token', launch.tokenAddress);
+  log.detail('poolId', launch.poolId);
+  if (launch.deployTxHash) log.detail('deployTx', launch.deployTxHash);
 
   return {
-    patch: { tokenSymbol: symbol, tokenAddress },
-    done: tokenAddress,
+    patch: {
+      tokenSymbol: symbol,
+      tokenAddress: launch.tokenAddress,
+      poolId: launch.poolId,
+      deployTxHash: launch.deployTxHash,
+    },
+    done: launch.tokenAddress,
   };
 }

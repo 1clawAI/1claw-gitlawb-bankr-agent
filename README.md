@@ -7,7 +7,7 @@ In one `pnpm agent` it:
 2. **Creates and pushes a GitLawb repo** (decentralized git on IPFS/libp2p)
 3. **Generates `agent.ts`** via the **Shroud TEE LLM proxy**
 4. **Launches a Bankr token** on Base (`POST /token-launches/deploy`)
-5. **Submits a fee swap** through **1Claw Intents** (HSM signing — key never leaves 1Claw)
+5. **Swaps launched token → pool counter-currency** (WETH on Bankr/Doppler pools) via **1Claw Intents** + Uniswap V4
 
 Progress prints at each stage; `run-summary.json` records artifacts (DID, repo URL,
 token address, swap tx hash).
@@ -141,9 +141,12 @@ src/
 │   ├── intents-evm-signer.ts # HSM signer for x402 payments
 │   ├── gitlawb.ts            # gl + git push (empty-repo main branch fix)
 │   ├── shroud.ts             # Shroud OpenAI-compatible client
-│   └── bankr.ts              # POST /token-launches/deploy
+│   ├── bankr.ts              # POST /token-launches/deploy (returns poolId)
+│   └── evm-wallet.ts         # agent signing address + Base RPC client
 ├── steps/                    # 01–05, one file per step
 └── util/
+    ├── pool-key.ts           # PoolKey from Bankr deploy Initialize log
+    ├── permit2.ts            # ERC20 + Permit2 approvals before swap
     ├── prompt-secret.ts      # masked stdin for bootstrap secrets
     ├── prompt-line.ts        # visible stdin for bootstrap profile
     ├── timeout.ts
@@ -181,9 +184,10 @@ src/
 
 ### Intents (step 5)
 
+- Reads `poolId` + deploy `txHash` from Bankr step 4; decodes **PoolKey** from the PoolManager `Initialize` event
+- **Permit2** — ERC20 approve + `Permit2.approve` for Universal Router (prior intents if needed)
+- Swaps launched token → the pool's other currency (typically **WETH** `0x4200…0006`, not USDC)
 - `POST /v1/agents/{id}/transactions` on Base; polls until `tx_hash`
-- V4 swap calldata is built in `util/v4-swap.ts` and submitted via the agent's HSM signing key
-- **PoolKey** (`fee`, `tickSpacing`, `hooks`) is still hardcoded — see [What's next](#whats-next)
 
 ## Implementation & test status
 
@@ -196,7 +200,7 @@ End-to-end tested on live 1Claw, GitLawb (`node.gitlawb.com`), Shroud, Bankr, an
 | **2** — GitLawb push (`agent-{uuid-prefix}` on public node) | ✅ | ✅ |
 | **3** — Shroud LLM + commit `agent.ts` | ✅ | ✅ |
 | **4** — Bankr `POST /token-launches/deploy` (ticker, name, optional `image`) | ✅ | ✅ |
-| **5** — 1Claw Intents swap on Base | ✅ | ✅ (intent + on-chain tx; pool params still placeholder) |
+| **5** — V4 swap via 1Claw Intents | ✅ | ✅ (PoolKey from deploy tx; Permit2 + swap to WETH) |
 
 Example successful run (`pnpm agent`):
 
@@ -213,16 +217,13 @@ No stub fallbacks — missing credentials or CLI fail fast with actionable error
 
 ## What's next
 
-Improvements beyond the reference happy path:
-
 | Area | Status | Notes |
 |------|--------|-------|
-| **V4 PoolKey discovery** | TODO | Step 5 uses placeholder `fee` / `tickSpacing` / `hooks`; read the real pool from the Bankr deploy response or on-chain state |
-| **Permit2 approval** | TODO | Pre-approve launched token → Permit2 → UniversalRouter if swaps revert or move zero tokens |
-| **Swap amount / slippage** | Demo | Fixed `1000` tokens in, `amountOutMinimum: 0` — add slippage guards for production |
+| **Multi-hop to USDC** | Optional | Doppler pools are WETH-paired; step 5 swaps token → WETH only |
+| **Slippage / quoting** | Demo | `amountOutMinimum: 0`; add quote + `BANKR_SWAP_SLIPPAGE_BPS` for production |
 | **GitLawb ↔ 1Claw identity** | Blocked upstream | Repos use local `gl` DID, not the 1Claw HSM `did:key` from step 1 |
-| **CI / regression tests** | None | Full flow needs live keys; consider mocked integration tests per client |
-| **Production hardening** | Reference only | Rate limits, retries, idempotent re-runs, secret rotation |
+| **CI / regression tests** | None | Full flow needs live keys; mock clients for unit tests |
+| **Production hardening** | Reference only | Retries, idempotent re-runs, secret rotation |
 
 ## Scripts
 

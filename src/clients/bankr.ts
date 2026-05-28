@@ -19,9 +19,17 @@ const ADDRESS_RE = /0x[a-fA-F0-9]{40}/;
 interface DeployResponse {
   success?: boolean;
   tokenAddress?: string;
+  poolId?: string;
   txHash?: string;
+  chain?: string;
   error?: string;
   message?: string;
+}
+
+export interface LaunchTokenResult {
+  tokenAddress: string;
+  poolId: string;
+  deployTxHash?: string;
 }
 
 function parseBankrError(status: number, body: string): string {
@@ -43,7 +51,7 @@ function parseBankrError(status: number, body: string): string {
   }
 }
 
-export async function launchToken(config: Config, body: LaunchTokenRequest): Promise<{ tokenAddress: string }> {
+export async function launchToken(config: Config, body: LaunchTokenRequest): Promise<LaunchTokenResult> {
   if (!config.BANKR_API_KEY) {
     throw new Error(
       '[step 4] bankr: BANKR_API_KEY is required — store a read-write key in the 1Claw vault via `pnpm bootstrap` or set it in .env',
@@ -74,6 +82,10 @@ export async function launchToken(config: Config, body: LaunchTokenRequest): Pro
     if (!tokenAddress) {
       throw new Error(`[step 4] bankr deploy: no tokenAddress in response: ${text}`);
     }
-    return { tokenAddress };
+    const poolId = data.poolId;
+    if (!poolId) {
+      throw new Error(`[step 4] bankr deploy: no poolId in response — cannot build V4 swap without pool metadata`);
+    }
+    return { tokenAddress, poolId, deployTxHash: data.txHash };
   });
 }
